@@ -1,0 +1,45 @@
+name: Publish to npm
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write # OIDC: lets npm verify this workflow identity, so no publish token exists to rotate or leak
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 24 ships npm 11.x. Trusted publishing needs npm >= 11.5.1, and the
+          # Node 22.14 floor still ships npm 10.9, so the Node version is what
+          # actually clears the npm requirement here.
+          #
+          # Deliberately no `registry-url`: that option writes an .npmrc carrying an
+          # empty _authToken placeholder, and npm then prefers it over the OIDC
+          # exchange. npm's default registry is already registry.npmjs.org.
+          node-version: 24
+
+      - name: Print the OIDC publish context
+        run: |
+          echo "repository:   ${GITHUB_REPOSITORY}"
+          echo "workflow:     ${GITHUB_WORKFLOW}"
+          echo "ref:          ${GITHUB_REF}"
+          echo "node:         $(node --version)"
+          echo "npm:          $(npm --version)"
+
+      # Provenance is attached automatically in trusted-publishing mode: the
+      # attestation binds this tarball to this workflow run and commit.
+      #
+      # The npmjs trusted-publisher entry for this repo must enable "Allow publish":
+      # since 2026-09-03 a new configuration may only *stage* by default, and a
+      # direct publish then fails with "403 OIDC permission denied for this action"
+      # even though the OIDC exchange itself succeeded.
+      - run: npm publish
