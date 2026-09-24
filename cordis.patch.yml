@@ -1,0 +1,5 @@
+# dsh-deepseek-usage — DeepSeek 用量侧边栏插件（npm 包名 @dougen/dsh-deepseek-usage）。
+# Host 半注册 GET /api/deepseek-usage；包声明 dsh.client 提供浏览器侧边栏卡片。
+- insert:
+    - id: deepseek-usage
+      name: '@dougen/dsh-deepseek-usage'
