@@ -1,0 +1,29 @@
+name: Publish to GitHub Packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+          scope: "@dougen"
+
+      # package.json 的 publishConfig.registry 指向 npmjs；这里显式覆盖到 GitHub Packages，
+      # 让同一版本也出现在仓库的 Packages 页面并自动关联到本仓库。
+      - run: npm publish --registry=https://npm.pkg.github.com
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
