@@ -1,7 +1,7 @@
 {
   "name": "@dougen/dsh-deepseek-usage",
   "version": "0.10.1",
-  "description": "DeepSeek 余额侧边栏插件：余额（官方 API）、当前档单价与峰谷时段指示灯，支持中/英文界面。",
+  "description": "A DeepSeek Harness sidebar plugin: your balance (official API), the active model's unit prices and a peak/off-peak indicator, in a Chinese/English UI. / DeepSeek Harness 侧边栏插件：余额（官方 API）、当前模型档单价与峰谷时段指示灯，界面支持中英文。",
   "type": "module",
   "main": "lib/index.js",
   "repository": {
