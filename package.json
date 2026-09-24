@@ -1,12 +1,19 @@
 {
   "name": "@dougen/dsh-deepseek-usage",
-  "version": "0.9.0",
+  "version": "0.10.1",
   "description": "DeepSeek 余额侧边栏插件：余额（官方 API）、当前档单价与峰谷时段指示灯，支持中/英文界面。",
   "type": "module",
   "main": "lib/index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dougen/dsh-deepseek-usage.git"
+  },
+  "homepage": "https://github.com/dougen/dsh-deepseek-usage",
+  "bugs": {
+    "url": "https://github.com/dougen/dsh-deepseek-usage/issues"
+  },
   "scripts": {
-    "test": "node --test test/",
-    "check:pricing": "node lib/pricing-remote.js --check"
+    "test": "node --test test/"
   },
   "files": [
     "lib",
