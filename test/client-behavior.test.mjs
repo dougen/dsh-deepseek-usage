@@ -508,6 +508,106 @@ test('订阅用量形态：接口返回三个档位时三个都上屏并按 5H�
   assert.deepEqual(numbers, ['99', '76', '42'], `三个窗口都要显示剩余量，实际 ${JSON.stringify(numbers)}`);
 });
 
+/** 订阅形态的宿主响应：三个窗口固定，计费区间由用例决定。 */
+const subscriptionResponse = (tier, peaks = false) => ({
+  ok: true,
+  status: 200,
+  json: async () => ({
+    ok: true,
+    provider: { id: 'opencode-go', displayName: 'OpenCode Go', kind: 'usage', reason: null },
+    balance: { isAvailable: null, total: null, currency: null },
+    usage: {
+      plan: null,
+      windows: [
+        { key: '5h', percent: 12, resetsAt: null },
+        { key: '7d', percent: 34, resetsAt: null },
+        { key: '30d', percent: 56, resetsAt: null },
+      ],
+    },
+    tier,
+    next: { peak: false, at: null, ms: 0 },
+    peak: peaks,
+    updatedAt: Date.now(),
+    errors: [],
+  }),
+});
+
+test('订阅用量形态：指示灯显隐不改变仪表盘阵列的宽度', async () => {
+  /** 渲染一次订阅卡片，取回仪表盘网格节点与指示灯节点。 */
+  const renderOf = async (tier) => {
+    globalThis.fetch = async () => subscriptionResponse(tier);
+    const runtime = makeRuntime();
+    const Comp = loadClient(runtime);
+    renderCard(Comp, runtime);
+    await flush();
+    const nodes = nodesOf(renderCard(Comp, runtime).out);
+    return {
+      grid: nodes.find((n) => n.props && n.props.style && n.props.style.display === 'grid'),
+      dots: nodes.filter((n) => n.props && n.props.title && n.props.style && n.props.style.borderRadius === '50%'),
+    };
+  };
+
+  // 有指示灯：宿主填了计费区间。
+  const withDot = await renderOf({ input: null, cacheRead: null, output: null, known: false, currency: 'CNY', window: 'peak' });
+  // 没有指示灯：全天一价（window 为空）或数据里没有计费区间。
+  const withoutDot = await renderOf({ input: 2, known: false });
+
+  assert.ok(withDot.grid && withoutDot.grid, '订阅形态应渲染仪表盘网格');
+  assert.equal(withDot.dots.length, 1, '有计费区间时应有指示灯');
+  assert.equal(withoutDot.dots.length, 0, '没有计费区间时不应有指示灯');
+  assert.equal(withDot.grid.props.style.paddingRight, 16, '指示灯占位的宽度应固定为 16px');
+  assert.equal(withoutDot.grid.props.style.paddingRight, 16, '指示灯不渲染时也要保留同样的右侧让位，仪表盘宽度才不变');
+});
+
+test('订阅用量形态：指示灯与仪表盘弧共用同一套低饱和度强调色', async () => {
+  const GREEN = 'color-mix(in srgb, var(--dsw-alias-state-success-primary, rgb(34,160,80)) 55%, #808080)';
+  const AMBER = 'color-mix(in srgb, var(--dsw-alias-state-warn-primary, rgb(230,120,0)) 55%, #808080)';
+  const RED = 'color-mix(in srgb, var(--dsw-alias-state-error-primary, rgb(200,40,40)) 55%, #808080)';
+
+  /** 渲染一次并取出指示灯颜色与两条仪表盘弧色（已用 84% → 剩余弧变红）。 */
+  const colorsOf = async (peak) => {
+    globalThis.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        provider: { id: 'opencode-go', displayName: 'OpenCode Go', kind: 'usage', reason: null },
+        balance: { isAvailable: null, total: null, currency: null },
+        usage: {
+          plan: null,
+          windows: [
+            { key: '5h', percent: 12, resetsAt: null },
+            { key: '30d', percent: 84, resetsAt: null },
+          ],
+        },
+        tier: { input: null, cacheRead: null, output: null, known: false, currency: 'CNY', window: peak ? 'peak' : 'idle' },
+        next: { peak: false, at: null, ms: 0 },
+        peak,
+        updatedAt: Date.now(),
+        errors: [],
+      }),
+    });
+    const runtime = makeRuntime();
+    const Comp = loadClient(runtime);
+    renderCard(Comp, runtime);
+    await flush();
+    const nodes = nodesOf(renderCard(Comp, runtime).out);
+    const dot = nodes.find((n) => n.props && n.props.style && n.props.style.borderRadius === '50%');
+    const arcs = nodes
+      .filter((n) => n.type === 'circle' && n.props && n.props.style && typeof n.props.style.stroke === 'string')
+      .map((n) => n.props.style.stroke);
+    return { dot: dot && dot.props.style.background, arcs };
+  };
+
+  const idle = await colorsOf(false);
+  assert.equal(idle.dot, GREEN, `空闲时指示灯应与仪表盘剩余弧同色，实际 ${idle.dot}`);
+  assert.deepEqual(idle.arcs, [GREEN, RED], `仪表盘弧应为低饱和度绿/红，实际 ${JSON.stringify(idle.arcs)}`);
+
+  const peak = await colorsOf(true);
+  assert.equal(peak.dot, AMBER, `高峰时指示灯应为低饱和度黄色，实际 ${peak.dot}`);
+  assert.deepEqual(peak.arcs, [GREEN, RED]);
+});
+
 test('不可查的 provider：卡片置空说明原因，且不出现任何数字', async () => {
   const { usage } = makePendingFetch();
   const runtime = makeRuntime();
@@ -615,7 +715,8 @@ test('状态表：不支持的提供商显示"不适用"而非红色"查询失�
   walk(out);
 
   const byText = Object.fromEntries(statuses.map((s) => [s.text, s.color]));
-  assert.equal(byText['accounts.status.ok'], 'var(--dsw-alias-state-success-primary, rgb(34,160,80))');
+  // "可查询"用与侧边栏指示灯、仪表盘弧相同的低饱和度绿色。
+  assert.equal(byText['accounts.status.ok'], 'color-mix(in srgb, var(--dsw-alias-state-success-primary, rgb(34,160,80)) 55%, #808080)');
   // 真失败仍然标红：这是用户需要行动的信号。
   assert.equal(byText['accounts.status.error'], 'var(--dsw-alias-state-error-primary, rgb(200,40,40))');
   // 不支持的提供商：中性 tertiary 色，不是错误色。

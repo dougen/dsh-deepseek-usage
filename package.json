@@ -1,6 +1,6 @@
 {
   "name": "@dougen/dsh-deepseek-usage",
-  "version": "0.18.13",
+  "version": "0.18.14",
   "description": "A DeepSeek Harness sidebar plugin: the active provider's account balance or subscription usage (DeepSeek, Moonshot/Kimi, GLM, OpenRouter, Kimi Coding, OpenCode, MiniMax, plus Claude Code and Codex OAuth tokens), a provider query-status page, and per-token unit prices for models whose provider has a built-in price snapshot — including DeepSeek's peak/off-peak schedule — in a Chinese/English UI.",
   "type": "module",
   "main": "lib/index.js",

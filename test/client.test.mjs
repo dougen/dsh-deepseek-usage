@@ -276,6 +276,9 @@ test('剩余额度颜色：已用 <80% 绿色，≥80% 红色', () => {
   assert.notEqual(red, green);
   assert.equal(I.remainingColor(100), red);
   assert.equal(I.remainingColor(120), red);
+  // 两种颜色都是降低饱和度后的强调色，不是主题 state 色的原值。
+  assert.match(green, /^color-mix\(in srgb, var\(--dsw-alias-state-success-primary/);
+  assert.match(red, /^color-mix\(in srgb, var\(--dsw-alias-state-error-primary/);
 });
 
 function nextChangeOf(days) {
