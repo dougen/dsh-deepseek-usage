@@ -12,11 +12,17 @@ A **DeepSeek Harness (DSH)** sidebar plugin that keeps the active provider's acc
 
 ![The sidebar card: balance, current unit prices and the billing-window dot](https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot.png)
 
+*Balance mode: the account balance, the current model's unit prices, and the peak / off-peak indicator in the top-right corner.*
+
+![Subscription usage: remaining quota per billing window](https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot2.png)
+
+*Subscription mode: one D-shaped gauge per billing window — the number inside is the remaining quota, grey is what has been used, green (red once 80% is used) is what is left, and the badge names the window (`5H` / `7D` / `1M`).*
+
 ## Features
 
-- **The active provider's account, in the sidebar footer.** A balance with its currency symbol (`¥` / `$`), or — for subscription plans that publish no balance — the tightest usage window as a percentage (`5-hour 23%`). The card follows the model you have selected, so switching provider switches the reading.
+- **The active provider's account, in the sidebar footer.** A balance with its currency symbol (`¥` / `$`), or — for subscription plans that publish no balance — every usage window the endpoint returns, drawn as one D-shaped gauge per quota in the same card: the green arc is the share still available, the grey arc the share already used, the remaining amount sits in the middle as a plain number, and a short badge in the open bottom names the window (`5H` / `7D` / `1M`), with the reset countdown on hover. The remaining arc turns red once 80% of the quota is used. Gauges spread evenly across the card, whether the plan returns one, two or three windows. The card follows the model you have selected, so switching provider switches the reading.
 - **Unit prices of the active model.** Input, input cache and output for the billing window in effect right now, in the currency of the table that priced them (`元` / `$`). They change when you switch models and when the billing window flips.
-- **Billing-window dot with a countdown.** Shown whenever the model's price table declares time-based windows: DeepSeek's official peak / off-peak schedule (orange during Mon–Fri 09:00–12:00 and 14:00–18:00 Beijing time, green otherwise — evenings, weekends, Chinese public holidays and make-up workdays are all off-peak), with the time left until the next switch beside it, as `2d 15h`, `5h 47m` or `23m`. OpenRouter's time-of-day overrides get the same dot. Models priced flat all day show the price row alone.
+- **Billing-window dot.** Shown whenever the model's price table declares time-based windows: DeepSeek's official peak / off-peak schedule (orange during Mon–Fri 09:00–12:00 and 14:00–18:00 Beijing time, green otherwise — evenings, weekends, Chinese public holidays and make-up workdays are all off-peak). Hovering it gives the time left until the next switch as `2d 15h`, `5h 47m` or `23m`. OpenRouter's time-of-day overrides get the same dot. A subscription route that serves a DeepSeek model keeps the same dot (no per-token price is shown for a subscription). Models priced flat all day show the price row alone.
 - **A query-status page** on the plugin's own page in Plugins: every provider DSH knows about that is configured, supported, or currently active gets a small card with its reading or the reason it cannot be read.
 - **OAuth token cards** for Claude Code and OpenAI Codex, when DSH detects those routes: paste a token and the card plus the status table start reporting subscription usage.
 - **Refreshes every 30 seconds**, immediately on click and when the model changes; follows the app light / dark theme and the DSH language; pauses while the tab is hidden.
@@ -37,6 +43,8 @@ A **DeepSeek Harness (DSH)** sidebar plugin that keeps the active provider's acc
 | OpenAI Codex (`openai-codex`) | OAuth subscription | `GET https://chatgpt.com/backend-api/wham/usage` | `DSH_USAGE_CODEX_OAUTH_TOKEN` + `DSH_USAGE_CODEX_ACCOUNT_ID` |
 
 Each provider reads the reference the Models page writes for that route first (`<ROUTE>_API_KEY`, with non-alphanumerics turned into `_`), then the adapter's own environment name — so a key typed on the Models page and one exported in your shell both work. When a key is missing, the card names the reference it looked for.
+
+Every subscription endpoint returns all of its usage windows in a single response, so the card lists them side by side without a request per window: OpenCode reports 5-hour, weekly and monthly; Kimi For Coding reports 5-hour, weekly and, when the account has one, monthly; Claude Code reports 5-hour, weekly and a separate Opus weekly window; Codex reports 5-hour and weekly; MiniMax reports an interval plus a weekly window per quota bucket (the card shows the tightest bucket for each). Vendors disagree on whether a number means used or remaining, so every reading is normalised to **used**.
 
 > [!NOTE]
 > When GitHub Copilot (OAuth only), Google, Google Vertex, Amazon Bedrock or Azure (cloud AK/SK) are configured or currently active, the status page states the reason instead of showing a number; this plugin deliberately does not handle those credential kinds. OpenCode's Zen wallet balance has no API-key-readable endpoint ([anomalyco/opencode#44189](https://github.com/anomalyco/opencode/issues/44189)), so only the subscription usage windows above are available.
@@ -102,9 +110,9 @@ Prices are one built-in snapshot per provider, `PRICE_TABLES` in `lib/pricing.js
 
 ### Billing windows
 
-- **DeepSeek** — peak prices (`standard`) apply Mon–Fri 09:00–12:00 and 14:00–18:00 Beijing time, excluding Chinese public holidays; everything else (evenings, weekends, holidays, make-up workdays) is off-peak (`offPeak`). `deepseek-chat` and `deepseek-reasoner` have the same price in both windows but still get the indicator and countdown.
+- **DeepSeek** — peak prices (`standard`) apply Mon–Fri 09:00–12:00 and 14:00–18:00 Beijing time, excluding Chinese public holidays; everything else (evenings, weekends, holidays, make-up workdays) is off-peak (`offPeak`). `deepseek-chat` and `deepseek-reasoner` have the same price in both windows but still get the indicator (hover it for the remaining time).
 - **OpenRouter** — `deepseek/deepseek-v4.1-flash-1017` carries its own weekday 09:00–12:00 / 14:00–18:00 windows, without the Chinese holiday rule.
-- **Everything else** is priced flat all day: the price row appears without a dot or countdown.
+- **Everything else** is priced flat all day: the price row appears without a dot.
 
 > [!WARNING]
 > The Chinese holiday table (`HOLIDAY_RANGES` in `lib/pricing.js`) currently covers 2026. The State Council usually publishes next year's arrangement in November; update the table, the browser-side mirror and `HOLIDAY_TABLE_THROUGH_YEAR` then. Until you do, holidays are billed as ordinary workdays and the host logs a warning once a day.
@@ -126,13 +134,13 @@ The plugin has two halves, both plain ESM with no build step. The host registers
 
 | Route | Method | Purpose |
 | --- | --- | --- |
-| `/api/deepseek-usage` | `GET` (`?lang=zh\|en`) | the active model's provider reading, price tier, billing-window state and countdown |
+| `/api/deepseek-usage` | `GET` (`?lang=zh\|en`) | the active model's provider reading, price tier and billing-window state |
 | `/api/deepseek-usage/accounts` | `GET` (`?list=1` for a list-only pass) | query status for every configured, supported or current provider |
 | `/api/deepseek-usage/token` | `POST` | save or clear an OAuth token |
 | `/api/deepseek-usage/holidays` | `GET` | the public-holiday table for the browser half |
 
 - **Host** (`lib/index.js`, `lib/accounts.js`, `lib/pricing.js`) resolves the active model's provider from `agentDefaultModel` on every request, resolves that provider's credential reference through DSH's credential service, calls the matching endpoint with a 15-second timeout and a 64 KiB response cap, then classifies any failure into a short, actionable message. Readings are cached for 10 seconds and keyed by provider, endpoint and credential, with in-flight coalescing, so a second tab or a click does not repeat the upstream call.
-- **Browser** (`lib/client.js`) renders that answer into the `sidebar.footer.action` slot and the status table into `plugins.detail.section` on the plugin's own page. It holds no pricing logic: the dot, the countdown and the prices all come from the same answer. It re-reads every 30 seconds, on click and when the model changes, and mirrors the holiday table only as a fallback if the host route is unavailable.
+- **Browser** (`lib/client.js`) renders that answer into the `sidebar.footer.action` slot and the status table into `plugins.detail.section` on the plugin's own page. It holds no pricing logic: the dot and the prices all come from the same answer. It re-reads every 30 seconds, on click and when the model changes, and mirrors the holiday table only as a fallback if the host route is unavailable.
 - **Local only.** Every route answers only to local callers: the `Host` header must name a loopback address (or the address the server is bound to), cross-site browser requests and foreign `Origin` headers are refused, only the documented methods are accepted, and the token route requires JSON with a bounded body. Credentials never cross to the browser — no response carries a key, a token or an upstream error message. A local process on the same machine can still read the routes; that is inherent to a local tool.
 
 ## Troubleshooting
@@ -160,9 +168,9 @@ The card never shows an upstream error message verbatim: transport details stay 
 
 ### 功能
 
-- **侧边栏底部的账户读数**：余额带币种符号（`¥` / `$`）；订阅制没有余额接口，则显示最紧窗口的已用百分比（如 `5 小时 23%`）。读数跟随当前选中的模型，切换提供商即切换读数。
+- **侧边栏底部的账户读数**：余额带币种符号（`¥` / `$`）；订阅制没有余额接口，就在同一张卡片里为接口返回的每个用量窗口画一个 D 形仪表盘——绿色弧是还没用完的额度，灰色弧是已经用掉的部分，弧内数字是剩余量（不带百分号），底部缺口嵌着周期缩写徽章（`5H`、`7D`、`1M`），重置倒计时放在悬浮说明里；已用达到 80% 后剩余弧变红。无论返回 1 个、2 个还是 3 个窗口，仪表盘都在卡片里均分居中。读数跟随当前选中的模型，切换提供商即切换读数。
 - **当前模型的单价**：输入 / 输入缓存 / 输出，按此刻生效的计费时段显示，币种跟给价的那张表走（`元` / `$`）。切换模型、跨过计费区间切换点时会跟着变。
-- **计费区间指示灯 + 倒计时**：价格表声明了分时段计费时出现。DeepSeek 为官方峰谷：高峰（周一至周五 09:00–12:00、14:00–18:00 北京时间，不含中国法定节假日）橙色，其余时间绿色——周末、法定节假日、调休上班的周末都按空闲处理；指示灯旁给出距下次切换的剩余时间（`2d 15h`、`5h 47m`、`23m`）。OpenRouter 的分时 overrides 用同一套指示灯与倒计时。全天一价的模型只显示单价行。
+- **计费区间指示灯**：价格表声明了分时段计费时出现。DeepSeek 为官方峰谷：高峰（周一至周五 09:00–12:00、14:00–18:00 北京时间，不含中国法定节假日）橙色，其余时间绿色——周末、法定节假日、调休上班的周末都按空闲处理；指针悬停时给出距下次切换的剩余时间（`2d 15h`、`5h 47m`、`23m`）。OpenRouter 的分时 overrides 用同一套指示灯。订阅制路由上跑的若是 DeepSeek 模型，也照旧显示指示灯（订阅制不显示按 token 的单价）。全天一价的模型只显示单价行。
 - **查询状态页**：在 Plugins 面板本插件的详情页上，DSH 里已配置的、受支持的、当前的每个提供商各占一张小卡片，能查的显示读数，不能查的写明原因。
 - **OAuth 令牌填写卡**：DSH 检测到 Claude Code / Codex 时出现，粘贴令牌后卡片与状态表即可显示订阅用量。
 - **每 30 秒自动刷新**，点击卡片或切换模型时立即刷新；跟随应用明暗主题与 DSH 语言；标签页隐藏时暂停心跳。
@@ -183,6 +191,8 @@ The card never shows an upstream error message verbatim: transport details stay 
 | OpenAI Codex（`openai-codex`） | OAuth 订阅 | `GET https://chatgpt.com/backend-api/wham/usage` | `DSH_USAGE_CODEX_OAUTH_TOKEN` + `DSH_USAGE_CODEX_ACCOUNT_ID` |
 
 每个提供商先读模型页为该路由写入的 `<路由名>_API_KEY`（非字母数字换成 `_`），然后读适配器自己声明的环境变量名——无论密钥是当初在模型页键入的，还是在 shell / `.env` 里导出的，都能读到。缺密钥时卡片会点名它查过的引用。
+
+每个订阅接口都在**一次响应**里返回全部用量窗口，卡片因此可以并排列出，不必每个窗口各发一次请求：OpenCode 给 5 小时 / 周 / 月；Kimi For Coding 给 5 小时 / 周，账号有月额度时再给月；Claude Code 给 5 小时 / 周，以及单独的 Opus 周窗口；Codex 给 5 小时 / 周；MiniMax 给「区间 + 周」两档、每个额度桶各一份（卡片取每档里最紧的桶）。各家对"已用"和"剩余"的口径不一致，解析时统一折算成**已用**。
 
 > [!NOTE]
 > GitHub Copilot（仅 OAuth）、Google、Google Vertex、Amazon Bedrock、Azure（云厂商 AK/SK）被配置或正好是当前提供商时，状态页写明原因而不是给一个数字——这些凭据形态本插件有意不处理。OpenCode 的 Zen 钱包余额没有可用 API Key 读取的接口（[anomalyco/opencode#44189](https://github.com/anomalyco/opencode/issues/44189)），只有上面的订阅用量窗口可读。
@@ -242,9 +252,9 @@ dsh plugin --profile web remove @dougen/dsh-deepseek-usage
 
 **计费区间**
 
-- **DeepSeek**——高峰价（`standard`）为周一至周五 09:00–12:00、14:00–18:00 北京时间，剔除中国法定节假日；其余时间（夜间、周末、节假日、调休上班日）为空闲价（`offPeak`）。`deepseek-chat` / `deepseek-reasoner` 两个区间同价，但照旧显示指示灯与倒计时。
+- **DeepSeek**——高峰价（`standard`）为周一至周五 09:00–12:00、14:00–18:00 北京时间，剔除中国法定节假日；其余时间（夜间、周末、节假日、调休上班日）为空闲价（`offPeak`）。`deepseek-chat` / `deepseek-reasoner` 两个区间同价，但照旧显示指示灯（悬停给出剩余时间）。
 - **OpenRouter**——`deepseek/deepseek-v4.1-flash-1017` 自带工作日 09:00–12:00 / 14:00–18:00 的窗口，**没有**中国法定节假日规则。
-- **其余模型**全天一价：只显示单价行，没有指示灯与倒计时。
+- **其余模型**全天一价：只显示单价行，没有指示灯。
 
 > [!WARNING]
 > 中国法定节假日表（`lib/pricing.js` 的 `HOLIDAY_RANGES`）目前只覆盖 2026 年。国务院办公厅通常在前一年 11 月发布次年安排，届时更新该表、浏览器侧镜像表与 `HOLIDAY_TABLE_THROUGH_YEAR`。未更新前，节假日按普通工作日计价，宿主每天告警一次。
@@ -264,13 +274,13 @@ dsh plugin --profile web remove @dougen/dsh-deepseek-usage
 
 | 路由 | 方法 | 作用 |
 | --- | --- | --- |
-| `/api/deepseek-usage` | `GET`（`?lang=zh\|en`） | 当前模型提供商的读数、单价、计费区间与倒计时 |
+| `/api/deepseek-usage` | `GET`（`?lang=zh\|en`） | 当前模型提供商的读数、单价与计费区间 |
 | `/api/deepseek-usage/accounts` | `GET`（`?list=1` 只回清单） | 每个已配置 / 受支持 / 当前提供商的查询状态 |
 | `/api/deepseek-usage/token` | `POST` | 写入或清除 OAuth 令牌 |
 | `/api/deepseek-usage/holidays` | `GET` | 交给浏览器侧的法定节假日表 |
 
 - **宿主侧**（`lib/index.js`、`lib/accounts.js`、`lib/pricing.js`）每次请求从 `agentDefaultModel` 解析当前提供商，经凭据服务解析该提供商的密钥引用，请求对应接口（15 秒超时、64 KiB 响应上限），失败分类成一句简短可行动的话。读数缓存 10 秒并按「提供商 + 端点 + 凭据」分桶、合并在途请求，多标签页或重复点击不会重复打上游。
-- **浏览器侧**（`lib/client.js`）把响应渲染进 `sidebar.footer.action`，把状态表渲染进本插件详情页的 `plugins.detail.section`。界面自身不做计价逻辑：指示灯、倒计时与单价都来自同一份响应。每 30 秒重新读一次，点击卡片或模型变化时立即刷新；宿主路由不可用时才用内置的节假日表兜底。
+- **浏览器侧**（`lib/client.js`）把响应渲染进 `sidebar.footer.action`，把状态表渲染进本插件详情页的 `plugins.detail.section`。界面自身不做计价逻辑：指示灯与单价都来自同一份响应。每 30 秒重新读一次，点击卡片或模型变化时立即刷新；宿主路由不可用时才用内置的节假日表兜底。
 - **只服务本机**：`Host` 必须是回环地址（或服务器绑定的地址），跨站浏览器请求与异源 `Origin` 一律拒绝，只接受文档声明的方法，令牌路由还要求 JSON 且有 body 上限。凭据从不下发到浏览器——任何响应都不带 Key、令牌或上游错误原文。同一台机器上的本地进程仍能读到这些路由，这是本地工具的固有边界。
 
 ### 常见问题

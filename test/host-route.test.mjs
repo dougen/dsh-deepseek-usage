@@ -471,6 +471,50 @@ test('订阅制 provider 返回最紧窗口的百分比，不返回余额', asyn
   assert.deepEqual(res.body.errors, []);
 });
 
+test('订阅制路由上的 DeepSeek 模型：仍返回峰谷时段，但 known=false 不显示单价', async () => {
+  resetFetch();
+  fetchRoutes = {
+    'opencode.ai/zen/go/v1/usage': new Response(JSON.stringify({
+      usage: {
+        rolling: { status: 'ok', percent: 12 },
+        weekly: { status: 'ok', percent: 34 },
+        monthly: { status: 'ok', percent: 56 },
+      },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }),
+  };
+  const { ctx, routes } = makeCtx({
+    provider: 'opencode-go',
+    model: 'deepseek-v4.1-flash',
+    refs: { OPENCODE_GO_API_KEY: 'sk-oc-go' },
+  });
+  apply(ctx);
+  const res = await call(routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }));
+  assert.equal(res.body.provider.kind, 'usage');
+  assert.equal(res.body.tier.known, false, '订阅制不走按 token 计价');
+  assert.ok(res.body.tier.window === 'peak' || res.body.tier.window === 'idle', '仍应给出峰谷时段');
+  assert.equal(res.body.peak, res.body.tier.window === 'peak');
+  assert.ok(Number.isFinite(res.body.next.at), '应给出下一次峰谷切换时刻');
+  assert.ok(res.body.next.at > Date.now(), '切换时刻必须在将来');
+});
+
+test('订阅制路由上的非 DeepSeek 模型：不虚构峰谷时段', async () => {
+  resetFetch();
+  fetchRoutes = {
+    'opencode.ai/zen/go/v1/usage': new Response(JSON.stringify({
+      usage: { rolling: { status: 'ok', percent: 12 } },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }),
+  };
+  const { ctx, routes } = makeCtx({
+    provider: 'opencode-go',
+    model: 'minimax-m3',
+    refs: { OPENCODE_GO_API_KEY: 'sk-oc-go' },
+  });
+  apply(ctx);
+  const res = await call(routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }));
+  assert.equal(res.body.tier.window, null);
+  assert.equal(res.body.next.at, null);
+});
+
 test('provider 没有可查接口时卡片置空并说明原因，不显示任何数字', async () => {
   resetFetch();
   const { ctx, routes } = makeCtx({ provider: 'google' });

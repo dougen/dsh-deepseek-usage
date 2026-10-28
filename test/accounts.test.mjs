@@ -165,6 +165,39 @@ test('Kimi Coding 用量：300 分钟映射 5h，7 天映射 7d', () => {
   assert.equal(parseKimiCodingUsage({ usage: { limits: [{ window: { duration: 300 }, detail: {} }] } }).code, 'empty');
 });
 
+test('Kimi Coding 用量：真实字段（limit/used 计数、usages 比例池）也能凑出多窗口', () => {
+  // 社区实测形态：顶层 usage 给周额度计数，limits[] 给 5 小时窗口，
+  // usages.* 给比例池（used_ratio 0..1），其中包含月窗口。
+  const body = {
+    usage: {
+      limit: '1000',
+      used: '250',
+      remaining: '750',
+      resetTime: '2026-11-02T00:00:00.000Z',
+      limits: [
+        { window: { duration: 300, timeUnit: 'TIME_UNIT_MINUTE' }, detail: { limit: '100', used: '10', resetTime: '2026-10-28T18:00:00.000Z' } },
+      ],
+    },
+    usages: {
+      limit_5h: { used_ratio: 0.5, reset_time: '2026-10-28T18:00:00.000Z' },
+      limit_month_total: { used_ratio: 0.8, reset_time: '2026-11-28T00:00:00.000Z' },
+    },
+  };
+  const out = parseKimiCodingUsage(body);
+  assert.equal(out.ok, true);
+  const byKey = Object.fromEntries(out.usage.windows.map((w) => [w.key, w]));
+  assert.equal(byKey['7d'].percent, 25, '周窗口由 used/limit 换算');
+  assert.equal(byKey['5h'].percent, 50, '同 key 取更高的已用百分比（usages 的比例池）');
+  assert.equal(byKey['30d'].percent, 80, '月窗口来自 limit_month_total');
+  assert.equal(byKey['5h'].resetsAt, Date.parse('2026-10-28T18:00:00.000Z'));
+
+  // 只有 usages 比例池、没有 usage 时同样可读。
+  const ratioOnly = parseKimiCodingUsage({ usages: { limit_5h: { used_ratio: 0.25 } } });
+  assert.equal(ratioOnly.ok, true);
+  assert.deepEqual(ratioOnly.usage.windows.map((w) => w.key), ['5h']);
+  assert.equal(ratioOnly.usage.windows[0].percent, 25);
+});
+
 test('OpenCode 用量：非 ok 状态的窗口被跳过', () => {
   const body = {
     usage: {
@@ -208,6 +241,33 @@ test('MiniMax 用量：取最紧窗口，百分比可换算', () => {
   assert.equal(parseMiniMaxRemains({}).code, 'empty');
 });
 
+test('MiniMax 用量：区间 + 周窗口各取最紧的桶', () => {
+  const body = {
+    base_resp: { status_code: 0 },
+    model_remains: [
+      {
+        current_interval_remaining_percent: 80,
+        end_time: 1790000000000,
+        current_weekly_remaining_percent: 40,
+        weekly_end_time: 1790500000000,
+      },
+      {
+        current_interval_remaining_percent: 20,
+        end_time: 1790000001000,
+        current_weekly_remaining_percent: 70,
+        weekly_end_time: 1790500001000,
+      },
+    ],
+  };
+  const out = parseMiniMaxRemains(body);
+  assert.equal(out.ok, true);
+  const byKey = Object.fromEntries(out.usage.windows.map((w) => [w.key, w]));
+  assert.equal(byKey.cycle.percent, 80, '区间窗口取两个桶里用得最多的');
+  assert.equal(byKey.cycle.resetsAt, 1790000001000);
+  assert.equal(byKey['7d'].percent, 60, '周窗口取两个桶里用得最多的（剩余 40 → 已用 60）');
+  assert.equal(byKey['7d'].resetsAt, 1790500000000);
+});
+
 test('Claude OAuth 用量：null 窗口跳过', () => {
   const body = {
     five_hour: { utilization: 33, resets_at: '2026-04-11T07:00:00.528743+00:00' },
@@ -221,6 +281,17 @@ test('Claude OAuth 用量：null 窗口跳过', () => {
 
   assert.equal(parseClaudeOAuthUsage({ five_hour: null, seven_day: null }).code, 'empty');
   assert.equal(parseClaudeOAuthUsage({}).code, 'empty');
+});
+
+test('Claude OAuth 用量：Opus 专属周窗口用独立 key，不和 7 天合并', () => {
+  const out = parseClaudeOAuthUsage({
+    five_hour: { utilization: 10 },
+    seven_day: { utilization: 20 },
+    seven_day_opus: { utilization: 90, resets_at: '2026-11-01T00:00:00.000Z' },
+  });
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.usage.windows.map((w) => w.key), ['5h', '7d', '7d-opus']);
+  assert.equal(out.usage.windows[2].percent, 90);
 });
 
 test('Claude 限流头：0..1 缩放成 0..100，秒转毫秒', () => {
@@ -275,6 +346,31 @@ test('Codex 用量：窗口 + credits.balance', () => {
   assert.equal(unlimited.balance, null);
   assert.equal(unlimited.code, 'empty');
   assert.equal(parseCodexUsage({}).code, 'shape');
+});
+
+test('Codex 用量：窗口 key 跟着 limit_window_seconds 走，缺字段才按位置回退', () => {
+  const windowsFromSeconds = parseCodexUsage({
+    rate_limit: {
+      primary_window: { used_percent: 5, limit_window_seconds: 18000 },
+      secondary_window: { used_percent: 50, limit_window_seconds: 604800 },
+    },
+  });
+  assert.deepEqual(windowsFromSeconds.usage.windows.map((w) => w.key), ['5h', '7d']);
+
+  // 位置与长度对不上时按长度标注，不硬套 primary=5h。
+  const swapped = parseCodexUsage({
+    rate_limit: {
+      primary_window: { used_percent: 5, limit_window_seconds: 604800 },
+      secondary_window: { used_percent: 50, limit_window_seconds: 3600 },
+    },
+  });
+  assert.deepEqual(swapped.usage.windows.map((w) => w.key), ['7d', '1h']);
+
+  // 只有位置字段时保留历史口径。
+  const positional = parseCodexUsage({
+    rate_limit: { primary_window: { used_percent: 6 }, secondary_window: { used_percent: 24 } },
+  });
+  assert.deepEqual(positional.usage.windows.map((w) => w.key), ['5h', '7d']);
 });
 
 // ---- 取数路径（桩 fetch）--------------------------------------------------

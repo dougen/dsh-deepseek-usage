@@ -55,15 +55,6 @@ test('币种映射到符号，未知币种显示代码', () => {
   assert.equal(I.currencySymbol(null), '¥');
 });
 
-test('倒计时的边界', () => {
-  assert.equal(I.fmtCountdown(0), 'switching');
-  assert.equal(I.fmtCountdown(59_400), 'switching');
-  assert.equal(I.fmtCountdown(60_000), '1m');
-  assert.equal(I.fmtCountdown(3 * 3600_000 + 47 * 60_000), '3h 47m');
-  assert.equal(I.fmtCountdown(2 * 86400_000 + 15 * 3600_000), '2d 15h');
-  assert.equal(I.fmtCountdown(NaN), 'switching');
-});
-
 test('放假日期集合：闭区间展开，非法日期被跳过', () => {
   const days = I.expandHolidayRanges([
     ['2026-10-01', '2026-10-07'],
@@ -183,6 +174,108 @@ test('百分比：null 是占位符，真 0 是 0%', () => {
   assert.equal(I.percentText(0), '0%');
   assert.equal(I.percentText(23.4), '23%');
   assert.equal(I.percentText(99.6), '100%');
+});
+
+// ---- 多窗口卡片（订阅用量档位）--------------------------------------------
+
+/** 与 lib/client.js 词典同口径的标签函数（中文）。 */
+const labels = (k) => ({
+  'accounts.window.5h': '5 小时',
+  'accounts.window.7d': '7 天',
+  'accounts.window.7d-opus': 'Opus 7 天',
+  'accounts.window.30d': '30 天',
+  'accounts.window.cycle': '当前周期',
+}[k] ?? k);
+
+/** 英文词典。 */
+const enLabels = (k) => ({
+  'accounts.window.5h': '5-hour',
+  'accounts.window.7d': '7-day',
+  'accounts.window.7d-opus': 'Opus 7-day',
+  'accounts.window.30d': '30-day',
+  'accounts.window.cycle': 'Current cycle',
+}[k] ?? k);
+
+test('用量窗口：按固定档位顺序排列，保留全部档位', () => {
+  const rows = I.usageWindows({
+    usage: {
+      windows: [
+        { key: '30d', percent: 58, resetsAt: 1000 },
+        { key: '5h', percent: 1, resetsAt: 2000 },
+        { key: '7d', percent: 24, resetsAt: 3000 },
+        { key: '7d-opus', percent: 91, resetsAt: 4000 },
+      ],
+    },
+  });
+  assert.deepEqual(rows.map((w) => w.key), ['5h', '7d', '7d-opus', '30d']);
+  assert.deepEqual(rows.map((w) => w.percent), [1, 24, 91, 58]);
+  assert.equal(rows[0].resetsAt, 2000);
+});
+
+test('用量窗口：缺失/非法百分比不画，重复 key 取更高的那条', () => {
+  const rows = I.usageWindows({
+    usage: {
+      windows: [
+        { key: '5h', percent: null },
+        { key: '7d', percent: 'n/a' },
+        { key: '30d', percent: 12 },
+        { key: '30d', percent: 40, resetsAt: 5000 },
+      ],
+    },
+  });
+  assert.deepEqual(rows.map((w) => w.key), ['30d']);
+  assert.equal(rows[0].percent, 40);
+  assert.equal(rows[0].resetsAt, 5000);
+  // 没有 windows 或没有 usage 时返回空数组，由卡片回退到兜底行。
+  assert.deepEqual(I.usageWindows(null), []);
+  assert.deepEqual(I.usageWindows({ usage: { windows: [] } }), []);
+});
+
+test('用量窗口标签：词典优先，通用时长按语言拼，未知 key 原样显示', () => {
+  assert.equal(I.windowLabel(labels, '5h', 'zh'), '5 小时');
+  assert.equal(I.windowLabel(enLabels, '5h', 'en'), '5-hour');
+  assert.equal(I.windowLabel(labels, '7d-opus', 'zh'), 'Opus 7 天');
+  assert.equal(I.windowLabel(labels, '1h', 'zh'), '1 小时');
+  assert.equal(I.windowLabel(labels, '3d', 'en'), '3-day');
+  assert.equal(I.windowLabel(labels, 'weird', 'zh'), 'weird');
+});
+
+test('周期徽章：统一英文缩写，未知时长按通用格式，完全未知原样大写', () => {
+  assert.equal(I.windowBadge('5h'), '5H');
+  assert.equal(I.windowBadge('7d'), '7D');
+  assert.equal(I.windowBadge('30d'), '1M');
+  assert.equal(I.windowBadge('7d-opus'), 'OPUS');
+  assert.equal(I.windowBadge('cycle'), 'CYCLE');
+  assert.equal(I.windowBadge('1h'), '1H');
+  assert.equal(I.windowBadge('14d'), '14D');
+  assert.equal(I.windowBadge('weird'), 'WEIRD');
+});
+
+test('用量窗口悬浮说明：已用百分比 + 重置剩余时间', () => {
+  const soon = Date.now() + 2 * 3600_000 + 5 * 60_000;
+  const zh = I.windowHint({ key: '5h', percent: 12, resetsAt: soon }, labels, 'zh');
+  assert.match(zh, /^5 小时：已用 12%/);
+  assert.match(zh, /后重置$/);
+  const en = I.windowHint({ key: '5h', percent: 12, resetsAt: soon }, enLabels, 'en');
+  assert.match(en, /^5-hour: 12% used, resets in /);
+  // 没有重置时间（或已经过了）时只讲已用，不编一个倒计时。
+  assert.equal(I.windowHint({ key: '7d', percent: 34, resetsAt: null }, labels, 'zh'), '7 天：已用 34%');
+  assert.equal(I.windowHint({ key: '7d', percent: 34, resetsAt: 1 }, enLabels, 'en'), '7-day: 34% used');
+});
+
+test('用量比例：夹在 0–1', () => {
+  assert.equal(I.usageRatio(-5), 0);
+  assert.equal(I.usageRatio(42.5), 0.425);
+  assert.equal(I.usageRatio(180), 1);
+});
+
+test('剩余额度颜色：已用 <80% 绿色，≥80% 红色', () => {
+  const green = I.remainingColor(0);
+  assert.equal(I.remainingColor(79.9), green);
+  const red = I.remainingColor(80);
+  assert.notEqual(red, green);
+  assert.equal(I.remainingColor(100), red);
+  assert.equal(I.remainingColor(120), red);
 });
 
 function nextChangeOf(days) {

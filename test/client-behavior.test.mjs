@@ -404,12 +404,16 @@ test('宿主返回的假期表覆盖内置表：峰谷判定跟着宿主走', as
   });
   await flush();
 
-  const text = textOf(renderCard(Comp, runtime).out);
-  // 倒计时按 "d h" 计数：宿主表生效时至少还有 10 天。不能写死 10/11——11 天假往后
-  // 可能撞上周末（例如从周二起算，第 12 天才是工作日 09:00），天数取决于当天是周几。
-  const days = /(\d+)d \d{1,2}h/.exec(text);
-  assert.ok(days, `倒计时应以 d/h 显示，实际 ${text}`);
-  assert.ok(Number(days[1]) >= 10, `倒计时应按宿主的假期表指向十几天后，实际 ${text}`);
+  const out = renderCard(Comp, runtime).out;
+  // 剩余时间只放在指示灯的悬浮说明里（卡片上不再显示倒计时文本）。
+  const titles = nodesOf(out).map((n) => n.props && n.props.title).filter((t) => typeof t === 'string');
+  const hint = titles.find((t) => t.includes('还剩'));
+  assert.ok(hint, `悬浮说明应给出剩余时间，实际 ${JSON.stringify(titles)}`);
+  // 宿主表生效时至少还有 10 天。不能写死 10/11——11 天假往后可能撞上周末
+  // （例如从周二起算，第 12 天才是工作日 09:00），天数取决于当天是周几。
+  const days = /(\d+) 天/.exec(hint);
+  assert.ok(days, `悬浮说明应以"天"显示，实际 ${hint}`);
+  assert.ok(Number(days[1]) >= 10, `悬浮说明应按宿主的假期表指向十几天后，实际 ${hint}`);
 });
 
 test('卸载后不再写入状态', async () => {
@@ -426,22 +430,82 @@ test('卸载后不再写入状态', async () => {
 
 // ---- 多提供商账户读数的渲染 ----------------------------------------------
 
-test('订阅用量形态渲染出窗口标签与百分比', async () => {
+test('订阅用量形态：一张卡片里同时渲染所有窗口', async () => {
   const { usage } = makePendingFetch();
   const runtime = makeRuntime();
   const Comp = loadClient(runtime);
   renderCard(Comp, runtime);
   usage()[0].resolve(usageResponse([
     { key: '5h', percent: 4, resetsAt: null },
-    { key: '7d', percent: 34, resetsAt: null },
+    { key: '7d', percent: 34, resetsAt: Date.now() + 86_400_000 },
+  ]));
+  await flush();
+  const out = renderCard(Comp, runtime).out;
+  const text = textOf(out);
+  // 每个窗口一个仪表盘：百分比在弧内，周期缩写徽章在底部缺口。
+  assert.ok(text.includes('5H'), `应显示 5 小时徽章，实际 ${text}`);
+  assert.ok(text.includes('7D'), `应显示 7 天徽章，实际 ${text}`);
+  // 弧内只显示剩余量（不带百分号），字号 15；完整百分比留到悬浮说明。
+  const numbers = nodesOf(out).filter((n) => n.props && n.props.style && n.props.style.fontSize === 15).map(textOf);
+  assert.deepEqual(numbers, ['96', '66'], `弧内应显示剩余量（不带百分号），实际 ${JSON.stringify(numbers)}`);
+  assert.ok(!text.includes('%'), `卡片上不再显示百分号，实际 ${text}`);
+  assert.ok(!text.includes('—'), `拿到数据后不应有占位符，实际 ${text}`);
+  // 完整周期名与重置倒计时在悬浮说明里（环内放不下）。
+  const titles = nodesOf(out).map((n) => n.props && n.props.title).filter((t) => typeof t === 'string');
+  assert.ok(titles.some((t) => t.includes('5 小时：已用 4%')), `5 小时窗口应有完整悬浮说明，实际 ${titles.join(' | ')}`);
+  assert.ok(titles.some((t) => t.includes('7 天：已用 34%，')), `7 天窗口的悬浮说明应带重置倒计时，实际 ${titles.join(' | ')}`);
+});
+
+test('订阅用量 + 峰谷时段：只显示指示灯（悬浮给剩余时间），不显示单价行', async () => {
+  const { usage } = makePendingFetch();
+  const runtime = makeRuntime();
+  const Comp = loadClient(runtime);
+  renderCard(Comp, runtime);
+  usage()[0].resolve({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      ok: true,
+      provider: { id: 'opencode-go', displayName: 'OpenCode Go', kind: 'usage', reason: null },
+      balance: { isAvailable: null, total: null, currency: null },
+      usage: { plan: null, windows: [{ key: '5h', percent: 12, resetsAt: null }, { key: '30d', percent: 56, resetsAt: null }] },
+      tier: { input: null, cacheRead: null, output: null, known: false, currency: 'CNY', window: 'peak' },
+      next: { peak: false, at: Date.now() + 3 * 3_600_000 },
+      peak: true,
+      updatedAt: Date.now(),
+      errors: [],
+    }),
+  });
+  await flush();
+  const out = renderCard(Comp, runtime).out;
+  const text = textOf(out);
+  // 峰谷指示灯：橙色状态点，剩余时间只在悬浮说明里。
+  const dots = nodesOf(out).filter((n) => n.props && n.props.role === 'img' && n.props['aria-label']);
+  assert.ok(dots.some((n) => n.props['aria-label'] === '高峰时段'), `应有高峰指示灯，实际 ${JSON.stringify(dots.map((n) => n.props['aria-label']))}`);
+  assert.ok(dots.some((n) => typeof n.props.title === 'string' && n.props.title.includes('还剩')), '指示灯的悬浮说明应给出剩余时间');
+  assert.ok(!/2h \d+m/.test(text), `卡片上不应再显示倒计时文本，实际 ${text}`);
+  // 订阅制不显示单价行（价格数字 0.04 不应出现）。
+  assert.ok(!text.includes('0.04'), `订阅卡片不应显示单价，实际 ${text}`);
+});
+
+test('订阅用量形态：接口返回三个档位时三个都上屏并按 5H→7D→1M 排列', async () => {
+  const { usage } = makePendingFetch();
+  const runtime = makeRuntime();
+  const Comp = loadClient(runtime);
+  renderCard(Comp, runtime);
+  usage()[0].resolve(usageResponse([
+    { key: '30d', percent: 58, resetsAt: Date.now() + 86400_000 },
+    { key: '5h', percent: 1, resetsAt: null },
+    { key: '7d', percent: 24, resetsAt: null },
   ]));
   await flush();
   const text = textOf(renderCard(Comp, runtime).out);
-  // 最紧的窗口（34%）上屏；标签走内置中文词典（测试里 locale.bind 返回恒等，
-  // t() 因此回退到 ZH）。
-  assert.ok(text.includes('34%'), `订阅用量应显示百分比，实际 ${text}`);
-  assert.ok(text.includes('7 天'), `应显示窗口标签，实际 ${text}`);
-  assert.ok(!text.includes('—'), `拿到数据后不应有占位符，实际 ${text}`);
+  const at5h = text.indexOf('5H');
+  const at7d = text.indexOf('7D');
+  const at1m = text.indexOf('1M');
+  assert.ok(at5h >= 0 && at7d > at5h && at1m > at7d, `窗口应按 5H→7D→1M 排列，实际 ${text}`);
+  const numbers = nodesOf(renderCard(Comp, runtime).out).filter((n) => n.props && n.props.style && n.props.style.fontSize === 15).map(textOf);
+  assert.deepEqual(numbers, ['99', '76', '42'], `三个窗口都要显示剩余量，实际 ${JSON.stringify(numbers)}`);
 });
 
 test('不可查的 provider：卡片置空说明原因，且不出现任何数字', async () => {
@@ -712,9 +776,11 @@ test('非 DeepSeek provider 缺切换时刻时不在本地猜（不套用 DeepSe
   renderCard(Comp, runtime);
   await flush();
 
-  const text = textOf(renderCard(Comp, runtime).out);
-  assert.ok(text.includes('—'), `缺切换时刻应显示占位符，实际 ${text}`);
-  assert.ok(!/\d+d \d{1,2}h/.test(text), `不得用 DeepSeek 的峰谷口径本地补一个倒计时，实际 ${text}`);
+  const out = renderCard(Comp, runtime).out;
+  const titles = nodesOf(out).filter((n) => n.props && typeof n.props.title === 'string').map((n) => n.props.title);
+  // 缺切换时刻：指示灯照常显示当前区间，但悬浮说明里不编一个剩余时间。
+  assert.ok(titles.includes('空闲时段'), `缺切换时刻时应只显示当前区间，实际 ${JSON.stringify(titles)}`);
+  assert.ok(!titles.some((t) => t.includes('还剩')), `不得用 DeepSeek 的峰谷口径本地补一个倒计时，实际 ${JSON.stringify(titles)}`);
 });
 
 test('旧宿主的响应（没有 tier.window）：指示灯与倒计时照旧，币种回退人民币', async () => {
