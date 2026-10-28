@@ -10,11 +10,11 @@
 
 A **DeepSeek Harness (DSH)** sidebar plugin that keeps the active provider's account reading and the current model's unit price one glance away — DeepSeek, Moonshot / Kimi, Z.ai (GLM), MiniMax, OpenRouter, Kimi For Coding, OpenCode, and Claude Code / Codex OAuth subscriptions — with a Chinese / English UI.
 
-![The sidebar card: balance, current unit prices and the billing-window dot](https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot.png)
+<img src="https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot.png" alt="The sidebar card: balance, current unit prices and the billing-window dot" width="520" />
 
 *Balance mode: the account balance, the current model's unit prices, and the peak / off-peak indicator in the top-right corner.*
 
-![Subscription usage: remaining quota per billing window](https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot2.png)
+<img src="https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot2.png" alt="Subscription usage: remaining quota per billing window" width="520" />
 
 *Subscription mode: one D-shaped gauge per billing window — the number inside is the remaining quota, grey is what has been used, green (red once 80% is used) is what is left, and the badge names the window (`5H` / `7D` / `1M`).*
 
