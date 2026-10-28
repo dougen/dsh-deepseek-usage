@@ -32,7 +32,7 @@ A **DeepSeek Harness (DSH)** sidebar plugin that keeps the active provider's acc
 
 | Provider | Kind | Endpoint | Credential reference |
 | --- | --- | --- | --- |
-| DeepSeek (`deepseek-official`, `deepseek-account`, `deepseek`) | Balance | `GET https://api.deepseek.com/user/balance` (honours `DEEPSEEK_BASE_URL`) | `DEEPSEEK_API_KEY` |
+| DeepSeek (`deepseek-official`, `deepseek-account`, `deepseek`) | Balance | `GET https://api.deepseek.com/user/balance` — the API-key routes honour `DEEPSEEK_BASE_URL`, `deepseek-account` always calls the official host | `DEEPSEEK_API_KEY`; `deepseek-account` uses the signed-in account grant |
 | Moonshot / Kimi (`moonshotai`) | Balance | `GET /v1/users/me/balance` — USD on `api.moonshot.ai`, then CNY on `api.moonshot.cn` | `MOONSHOTAI_API_KEY`, `MOONSHOT_API_KEY` |
 | Z.ai / GLM (`zai`) | Balance | `GET /api/biz/account/query-customer-account-report` — Bearer on `api.z.ai`, raw key on `open.bigmodel.cn` | `ZAI_API_KEY`, `ZAI_CODING_CN_API_KEY` |
 | OpenRouter (`openrouter`) | Balance | `GET /api/v1/key`, falling back to `GET /api/v1/credits` when the key carries no limit | `OPENROUTER_API_KEY` |
@@ -42,7 +42,7 @@ A **DeepSeek Harness (DSH)** sidebar plugin that keeps the active provider's acc
 | Claude Code (`anthropic`) | OAuth subscription | `GET https://api.anthropic.com/api/oauth/usage` | `DSH_USAGE_CLAUDE_OAUTH_TOKEN` |
 | OpenAI Codex (`openai-codex`) | OAuth subscription | `GET https://chatgpt.com/backend-api/wham/usage` | `DSH_USAGE_CODEX_OAUTH_TOKEN` + `DSH_USAGE_CODEX_ACCOUNT_ID` |
 
-Each provider reads the reference the Models page writes for that route first (`<ROUTE>_API_KEY`, with non-alphanumerics turned into `_`), then the adapter's own environment name — so a key typed on the Models page and one exported in your shell both work. When a key is missing, the card names the reference it looked for.
+Each provider reads the reference the Models page writes for that route first (`<ROUTE>_API_KEY`, with non-alphanumerics turned into `_`), then the adapter's own environment name — so a key typed on the Models page and one exported in your shell both work. When a key is missing, the card names the reference it looked for. `deepseek-account` is the exception: that route has no key to configure — it reads the grant left by signing in to DeepSeek in DSH and sends it as `x-dsh-auth-token`.
 
 Every subscription endpoint returns all of its usage windows in a single response, so the card lists them side by side without a request per window: OpenCode reports 5-hour, weekly and monthly; Kimi For Coding reports 5-hour, weekly and, when the account has one, monthly; Claude Code reports 5-hour, weekly and a separate Opus weekly window; Codex reports 5-hour and weekly; MiniMax reports an interval plus a weekly window per quota bucket (the card shows the tightest bucket for each). Vendors disagree on whether a number means used or remaining, so every reading is normalised to **used**.
 
@@ -60,7 +60,7 @@ Every subscription endpoint returns all of its usage windows in a single respons
 
 ## Getting started
 
-1. Configure the API key for the provider you want to query — on the Models page in DSH, or as its environment variable (`DEEPSEEK_API_KEY`, and so on).
+1. Configure the API key for the provider you want to query — on the Models page in DSH, or as its environment variable (`DEEPSEEK_API_KEY`, and so on). For `deepseek-account`, sign in to DeepSeek in DSH instead: that route reads the account grant, not a key.
 2. Install the plugin into the `web` profile:
 
    ```sh
@@ -148,17 +148,18 @@ The plugin has two halves, both plain ESM with no build step. The host registers
 **The card is blank, with a reason instead of numbers.**
 
 - *`DEEPSEEK_API_KEY is not configured`* / another reference name — set it in DSH settings (Models page) and restart.
+- *`Not signed in to a DeepSeek account`* — `deepseek-account` reports the grant from DSH sign-in; sign in to DeepSeek in DSH and the card starts reading the balance.
 - *The key contains characters an HTTP header cannot carry* — usually a stray newline from a copy-paste; re-copy it without the line break.
 - *Balance API HTTP n / timed out / unreachable / returned an unreadable response / returned no balance* — click the card to retry; check the network and the provider's status page.
 - *The account is currently unavailable* — the balance API answered with `is_available: false`.
 - *`This plugin does not support <provider>`* — the active provider has no readable balance or usage API (see above).
 - *`This provider has no OAuth token yet`* / *`The OAuth token is no longer valid`* — paste or replace the token on the plugin's page.
 
-If `DEEPSEEK_BASE_URL` points at a third-party gateway, only that gateway's answer is available: the official balance endpoint `https://api.deepseek.com/user/balance` is never called, and only DeepSeek's official platform is supported.
+If `DEEPSEEK_BASE_URL` points at a third-party gateway, only that gateway's answer is available: the official balance endpoint `https://api.deepseek.com/user/balance` is never called, and only DeepSeek's official platform is supported. This override covers the API-key routes; `deepseek-account` always queries the official host, because the account grant is valid there only.
 
 The card never shows an upstream error message verbatim: transport details stay in the host log, and the card carries a short, actionable line instead.
 
-**The status page shows no reading for a provider** — look at the row's status: `No API key` means the credential reference is missing, `Not applicable` means the provider has no readable API. Providers that are neither supported nor configured are not listed at all.
+**The status page shows no reading for a provider** — look at the row's status: `No API key` means the credential reference is missing, `Not signed in` means the `deepseek-account` route has no account grant yet, `Not applicable` means the provider has no readable API. Providers that are neither supported nor configured are not listed at all.
 
 ---
 
@@ -180,7 +181,7 @@ The card never shows an upstream error message verbatim: transport details stay 
 
 | 提供商 | 类型 | 接口 | 密钥引用 |
 | --- | --- | --- | --- |
-| DeepSeek（`deepseek-official`、`deepseek-account`、`deepseek`） | 余额 | `GET https://api.deepseek.com/user/balance`（遵循 `DEEPSEEK_BASE_URL`） | `DEEPSEEK_API_KEY` |
+| DeepSeek（`deepseek-official`、`deepseek-account`、`deepseek`） | 余额 | `GET https://api.deepseek.com/user/balance`——api-key 路由遵循 `DEEPSEEK_BASE_URL`，`deepseek-account` 恒用官方源 | `DEEPSEEK_API_KEY`；`deepseek-account` 用账号登录留下的 grant |
 | Moonshot / Kimi（`moonshotai`） | 余额 | `GET /v1/users/me/balance`——`api.moonshot.ai` 为 USD，回落 `api.moonshot.cn` 为 CNY | `MOONSHOTAI_API_KEY`、`MOONSHOT_API_KEY` |
 | 智谱 Z.ai / GLM（`zai`） | 余额 | `GET /api/biz/account/query-customer-account-report`——`api.z.ai` 用 Bearer，`open.bigmodel.cn` 用裸 Key | `ZAI_API_KEY`、`ZAI_CODING_CN_API_KEY` |
 | OpenRouter（`openrouter`） | 余额 | `GET /api/v1/key`；该 Key 无限额时回落 `GET /api/v1/credits` | `OPENROUTER_API_KEY` |
@@ -190,7 +191,7 @@ The card never shows an upstream error message verbatim: transport details stay 
 | Claude Code（`anthropic`） | OAuth 订阅 | `GET https://api.anthropic.com/api/oauth/usage` | `DSH_USAGE_CLAUDE_OAUTH_TOKEN` |
 | OpenAI Codex（`openai-codex`） | OAuth 订阅 | `GET https://chatgpt.com/backend-api/wham/usage` | `DSH_USAGE_CODEX_OAUTH_TOKEN` + `DSH_USAGE_CODEX_ACCOUNT_ID` |
 
-每个提供商先读模型页为该路由写入的 `<路由名>_API_KEY`（非字母数字换成 `_`），然后读适配器自己声明的环境变量名——无论密钥是当初在模型页键入的，还是在 shell / `.env` 里导出的，都能读到。缺密钥时卡片会点名它查过的引用。
+每个提供商先读模型页为该路由写入的 `<路由名>_API_KEY`（非字母数字换成 `_`），然后读适配器自己声明的环境变量名——无论密钥是当初在模型页键入的，还是在 shell / `.env` 里导出的，都能读到。缺密钥时卡片会点名它查过的引用。`deepseek-account` 是例外：这条路由没有可配的 Key，它读的是在 DSH 里登录 DeepSeek 后留下的 grant，并以 `x-dsh-auth-token` 发送。
 
 每个订阅接口都在**一次响应**里返回全部用量窗口，卡片因此可以并排列出，不必每个窗口各发一次请求：OpenCode 给 5 小时 / 周 / 月；Kimi For Coding 给 5 小时 / 周，账号有月额度时再给月；Claude Code 给 5 小时 / 周，以及单独的 Opus 周窗口；Codex 给 5 小时 / 周；MiniMax 给「区间 + 周」两档、每个额度桶各一份（卡片取每档里最紧的桶）。各家对"已用"和"剩余"的口径不一致，解析时统一折算成**已用**。
 
@@ -208,7 +209,7 @@ The card never shows an upstream error message verbatim: transport details stay 
 
 ### 安装
 
-1. 在 DSH 设置（模型页）里配置要查的提供商的 API Key，或导出对应的环境变量（DeepSeek 是 `DEEPSEEK_API_KEY`，其余同理）。
+1. 在 DSH 设置（模型页）里配置要查的提供商的 API Key，或导出对应的环境变量（DeepSeek 是 `DEEPSEEK_API_KEY`，其余同理）。`deepseek-account` 不需要密钥：在 DSH 里登录 DeepSeek 账号即可，这条路由读的是登录留下的 grant。
 2. 装进 `web` profile：
 
    ```sh
@@ -229,7 +230,7 @@ dsh plugin --profile web remove @dougen/dsh-deepseek-usage
 
 ### 查询状态页与 OAuth 令牌
 
-打开 **Plugins** 面板里本插件的详情页即可看到状态表。当前提供商排在最前并标着 `当前`，其余按类型分组；每一行要么显示读数，要么是 `未配置密钥`、`未填写令牌`、`查询中…`、`查询失败`、`不适用` 之一。
+打开 **Plugins** 面板里本插件的详情页即可看到状态表。当前提供商排在最前并标着 `当前`，其余按类型分组；每一行要么显示读数，要么是 `未配置密钥`、`未登录`、`未填写令牌`、`查询中…`、`查询失败`、`不适用` 之一。
 
 **Claude Code**——在已登录 Claude Code 的机器上，从 `~/.claude/.credentials.json` 的 `claudeAiOauth.accessToken` 复制（macOS 在钥匙串项 `Claude Code-credentials` 里）。`claude setup-token` 产生的令牌也能用，但它只带 `user:inference` 权限，插件改为从推理响应的限流头读取 5 小时与 7 天两个窗口。
 
@@ -288,14 +289,15 @@ dsh plugin --profile web remove @dougen/dsh-deepseek-usage
 **卡片空白，显示的是原因而不是数字**
 
 - *未配置 `DEEPSEEK_API_KEY`*（或其它引用名）：在 DSH 设置（模型页）里配置后重启。
+- *DeepSeek 账号尚未登录*：`deepseek-account` 读的是 DSH 登录留下的 grant，在 DSH 里登录 DeepSeek 账号后卡片就会显示余额。
 - *Key 里含有 HTTP 头带不了的字符*：通常是粘贴时带进一个换行，重新复制并去掉换行。
 - *余额接口 HTTP n / 超时 / 无法连接 / 返回了无法解析的内容 / 没有返回余额*：点击卡片重试，检查网络与该提供商的状态页。
 - *账户当前不可用*：余额接口有响应，但 `is_available` 为 false。
 - *本插件不支持 `<提供商>`*：当前提供商没有可查的余额或用量接口（见上文）。
 - *尚未填写该提供商的 OAuth 令牌* / *OAuth 令牌已失效*：到插件页面粘贴或重新粘贴一个。
 
-把 `DEEPSEEK_BASE_URL` 指向第三方中转时，拿到的是该中转的响应，官方余额接口不再被调用——本插件只支持 DeepSeek 官方平台。
+把 `DEEPSEEK_BASE_URL` 指向第三方中转时，拿到的是该中转的响应，官方余额接口不再被调用——本插件只支持 DeepSeek 官方平台。这个覆盖只作用于 api-key 路由：`deepseek-account` 恒用官方源，因为账号 grant 只在那里有效。
 
 卡片不会原样显示上游的错误消息：传输层细节留在宿主日志里，卡片上只放一句简短、能行动的话。
 
-**状态页里某个提供商没有读数**——看该行的状态：`未配置密钥` 表示凭据引用缺失，`不适用` 表示这类提供商没有可查接口。既不支持也没配置的提供商不会出现在列表里。
+**状态页里某个提供商没有读数**——看该行的状态：`未配置密钥` 表示凭据引用缺失，`未登录` 表示 `deepseek-account` 还没有账号 grant，`不适用` 表示这类提供商没有可查接口。既不支持也没配置的提供商不会出现在列表里。
