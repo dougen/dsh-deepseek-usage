@@ -152,6 +152,11 @@ function nodesOf(node, out = []) {
   return out;
 }
 
+/** 计费区间指示灯：role="img" 的 8px 定位盒子（45px 的仪表盘同样是 role="img"，靠宽度区分）。 */
+function isDotNode(node) {
+  return !!(node.props && node.props.role === 'img' && node.props.style && node.props.style.width === 8);
+}
+
 const okResponse = (total) => ({
   ok: true,
   status: 200,
@@ -543,7 +548,7 @@ test('订阅用量形态：指示灯显隐不改变仪表盘阵列的宽度', as
     const nodes = nodesOf(renderCard(Comp, runtime).out);
     return {
       grid: nodes.find((n) => n.props && n.props.style && n.props.style.display === 'grid'),
-      dots: nodes.filter((n) => n.props && n.props.title && n.props.style && n.props.style.borderRadius === '50%'),
+      dots: nodes.filter((n) => isDotNode(n) && n.props.title),
     };
   };
 
@@ -592,11 +597,13 @@ test('订阅用量形态：指示灯与仪表盘弧共用同一套低饱和度�
     renderCard(Comp, runtime);
     await flush();
     const nodes = nodesOf(renderCard(Comp, runtime).out);
-    const dot = nodes.find((n) => n.props && n.props.style && n.props.style.borderRadius === '50%');
+    const dot = nodes.find((n) => isDotNode(n));
+    // 圆点本体是 dot 里的 SVG 圆，颜色写在 circle 的 style.fill 上。
+    const disc = dot && dot.children && dot.children[0] && dot.children[0].children;
     const arcs = nodes
       .filter((n) => n.type === 'circle' && n.props && n.props.style && typeof n.props.style.stroke === 'string')
       .map((n) => n.props.style.stroke);
-    return { dot: dot && dot.props.style.background, arcs };
+    return { dot: disc && disc[0] && disc[0].props.style.fill, arcs };
   };
 
   const idle = await colorsOf(false);
