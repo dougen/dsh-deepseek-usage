@@ -49,6 +49,30 @@ Every subscription endpoint returns all of its usage windows in a single respons
 > [!NOTE]
 > When GitHub Copilot (OAuth only), Google, Google Vertex, Amazon Bedrock or Azure (cloud AK/SK) are configured or currently active, the status page states the reason instead of showing a number; this plugin deliberately does not handle those credential kinds. OpenCode's Zen wallet balance has no API-key-readable endpoint ([anomalyco/opencode#44189](https://github.com/anomalyco/opencode/issues/44189)), so only the subscription usage windows above are available.
 
+### Third-party provider plugins
+
+Some provider plugins register a route id of their own while calling the same vendor subscription. `dsh-opencode-go`, for example, registers the route `dsh-opencode-go` and queries the same OpenCode Go account as the built-in `opencode-go` route. This plugin resolves a provider by exact id, so the extra route reads as *not supported* until you map it:
+
+1. Open **Plugins → @dougen/dsh-deepseek-usage**. The **Provider mappings** editor sits at the top of that page, above the component list; the row title (with `›`) opens the same editor on the row's own page.
+2. Add a mapping: the provider id the plugin registered, and the supported provider it should read (`opencode-go` for `dsh-opencode-go`).
+3. Save. The card and the status page pick it up immediately, with no restart.
+
+The editor lists the routes DSH has registered but this plugin cannot recognize, so adding one is a click on the suggestion; the target provider is never guessed. Credential refs are optional: when empty, the route's own `<ROUTE>_API_KEY` is tried first, then the target provider's default references. Name them explicitly to follow a plugin that stores keys under its own account references (for example `DSH_OPENCODE_GO_ACCOUNT_*`).
+
+The same mapping can be written by hand in the profile's `cordis.patch.yml`:
+
+```yaml
+- id: deepseek-usage
+  name: '@dougen/dsh-deepseek-usage'
+  config:
+    providerAliases:
+      - provider: dsh-opencode-go
+        capability: opencode-go
+        refs: [OPENCODE_API_KEY]
+```
+
+A mapping only applies to route ids the built-in table does not know: the exact ids above always win and are never overridden. On a DSH whose Plugins page does not serve plugin configuration, use the YAML form.
+
 ## Requirements
 
 | DSH | Plugin version |
@@ -139,8 +163,8 @@ The plugin has two halves, both plain ESM with no build step. The host registers
 | `/api/deepseek-usage/token` | `POST` | save or clear an OAuth token |
 | `/api/deepseek-usage/holidays` | `GET` | the public-holiday table for the browser half |
 
-- **Host** (`lib/index.js`, `lib/accounts.js`, `lib/pricing.js`) resolves the active model's provider from `agentDefaultModel` on every request, resolves that provider's credential reference through DSH's credential service, calls the matching endpoint with a 15-second timeout and a 64 KiB response cap, then classifies any failure into a short, actionable message. Readings are cached for 10 seconds and keyed by provider, endpoint and credential, with in-flight coalescing, so a second tab or a click does not repeat the upstream call.
-- **Browser** (`lib/client.js`) renders that answer into the `sidebar.footer.action` slot and the status table into `plugins.detail.section` on the plugin's own page. It holds no pricing logic: the dot and the prices all come from the same answer. It re-reads every 30 seconds, on click and when the model changes, and mirrors the holiday table only as a fallback if the host route is unavailable.
+- **Host** (`lib/index.js`, `lib/accounts.js`, `lib/providers.js`, `lib/pricing.js`) resolves the active model's provider from `agentDefaultModel` on every request — exact id first, then the user's provider mappings — resolves that provider's credential reference through DSH's credential service, calls the matching endpoint with a 15-second timeout and a 64 KiB response cap, then classifies any failure into a short, actionable message. `lib/providers.js` is the mapping layer: it validates the configured aliases and returns the capability entry plus candidate credential refs. Readings are cached for 10 seconds and keyed by provider capability, endpoint and credential, with in-flight coalescing, so a second tab or a click does not repeat the upstream call.
+- **Browser** (`lib/client.js`) renders that answer into the `sidebar.footer.action` slot and the status table into `plugins.detail.section` on the plugin's own page. It also registers the `plugins.row.config` page that edits the provider mappings. It holds no pricing logic: the dot and the prices all come from the same answer. It re-reads every 30 seconds, on click and when the model changes, and mirrors the holiday table only as a fallback if the host route is unavailable.
 - **Local only.** Every route answers only to local callers: the `Host` header must name a loopback address (or the address the server is bound to), cross-site browser requests and foreign `Origin` headers are refused, only the documented methods are accepted, and the token route requires JSON with a bounded body. Credentials never cross to the browser — no response carries a key, a token or an upstream error message. A local process on the same machine can still read the routes; that is inherent to a local tool.
 
 ## Troubleshooting
@@ -197,6 +221,30 @@ The card never shows an upstream error message verbatim: transport details stay 
 
 > [!NOTE]
 > GitHub Copilot（仅 OAuth）、Google、Google Vertex、Amazon Bedrock、Azure（云厂商 AK/SK）被配置或正好是当前提供商时，状态页写明原因而不是给一个数字——这些凭据形态本插件有意不处理。OpenCode 的 Zen 钱包余额没有可用 API Key 读取的接口（[anomalyco/opencode#44189](https://github.com/anomalyco/opencode/issues/44189)），只有上面的订阅用量窗口可读。
+
+### 第三方 provider 插件
+
+有些 provider 插件会注册自己的路由 id，但调用的是同一个厂商订阅。例如 `dsh-opencode-go` 注册的 `dsh-opencode-go` 走的就是内置 `opencode-go` 那笔 OpenCode Go 账户。本插件按精确 id 识别提供商，所以这条额外路由在映射之前会显示「不支持」：
+
+1. 打开 **Plugins → @dougen/dsh-deepseek-usage**。「提供商映射」编辑器就在这一页顶部、组件列表上方；点组件行标题（带 `›`）打开的行页面里是同一份编辑器。
+2. 添加映射：左边填插件注册的 provider id，右边选它应该按哪个受支持提供商查询（`dsh-opencode-go` 选 `opencode-go`）。
+3. 保存。侧边栏卡片与状态页立即生效，不需要重启。
+
+编辑器会列出 DSH 里已注册、但本插件不认识的路由，点一下就填好 provider id；目标提供商不会替你猜。凭据引用可以留空：留空时先试该路由自己的 `<路由名>_API_KEY`，再试目标提供商的默认引用。若插件把密钥存在自己的账号引用下（例如 `DSH_OPENCODE_GO_ACCOUNT_*`），在这里显式写上。
+
+同一份映射也可以手写在 profile 的 `cordis.patch.yml`：
+
+```yaml
+- id: deepseek-usage
+  name: '@dougen/dsh-deepseek-usage'
+  config:
+    providerAliases:
+      - provider: dsh-opencode-go
+        capability: opencode-go
+        refs: [OPENCODE_API_KEY]
+```
+
+映射只对内置能力表里没有的路由生效：上表里的精确 id 永远优先，不会被映射覆盖。DSH 的 Plugins 页不提供插件配置表单时，用 YAML 手写即可。
 
 ### 版本要求
 
@@ -280,8 +328,8 @@ dsh plugin --profile web remove @dougen/dsh-deepseek-usage
 | `/api/deepseek-usage/token` | `POST` | 写入或清除 OAuth 令牌 |
 | `/api/deepseek-usage/holidays` | `GET` | 交给浏览器侧的法定节假日表 |
 
-- **宿主侧**（`lib/index.js`、`lib/accounts.js`、`lib/pricing.js`）每次请求从 `agentDefaultModel` 解析当前提供商，经凭据服务解析该提供商的密钥引用，请求对应接口（15 秒超时、64 KiB 响应上限），失败分类成一句简短可行动的话。读数缓存 10 秒并按「提供商 + 端点 + 凭据」分桶、合并在途请求，多标签页或重复点击不会重复打上游。
-- **浏览器侧**（`lib/client.js`）把响应渲染进 `sidebar.footer.action`，把状态表渲染进本插件详情页的 `plugins.detail.section`。界面自身不做计价逻辑：指示灯与单价都来自同一份响应。每 30 秒重新读一次，点击卡片或模型变化时立即刷新；宿主路由不可用时才用内置的节假日表兜底。
+- **宿主侧**（`lib/index.js`、`lib/accounts.js`、`lib/providers.js`、`lib/pricing.js`）每次请求从 `agentDefaultModel` 解析当前提供商——先精确 id，再查用户配置的映射——经凭据服务解析该提供商的密钥引用，请求对应接口（15 秒超时、64 KiB 响应上限），失败分类成一句简短可行动的话。`lib/providers.js` 是映射层：校验配置的别名，给出能力条目与候选凭据引用。读数缓存 10 秒并按「能力 + 端点 + 凭据」分桶、合并在途请求，多标签页或重复点击不会重复打上游。
+- **浏览器侧**（`lib/client.js`）把响应渲染进 `sidebar.footer.action`，把状态表渲染进本插件详情页的 `plugins.detail.section`，并注册 `plugins.row.config` 配置页来编辑提供商映射。界面自身不做计价逻辑：指示灯与单价都来自同一份响应。每 30 秒重新读一次，点击卡片或模型变化时立即刷新；宿主路由不可用时才用内置的节假日表兜底。
 - **只服务本机**：`Host` 必须是回环地址（或服务器绑定的地址），跨站浏览器请求与异源 `Origin` 一律拒绝，只接受文档声明的方法，令牌路由还要求 JSON 且有 body 上限。凭据从不下发到浏览器——任何响应都不带 Key、令牌或上游错误原文。同一台机器上的本地进程仍能读到这些路由，这是本地工具的固有边界。
 
 ### 常见问题

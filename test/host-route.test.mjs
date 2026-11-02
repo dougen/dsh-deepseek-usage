@@ -9,10 +9,28 @@ export function credentialRef(name) { return { kind: 'credential-ref', name }; }
 export default { credentialRef };
 `;
 
+/**
+ * schemastery 桩：Config 只需要一个能链式调用的 schema 对象。
+ * 宿主运行时由 DSH 提供真实的 @deepseek-ai/schemastery；测试不在本地安装依赖，
+ * 用 Proxy 让 object/array/string/union/const 以及 .required()/.default()/.volatile()
+ * 全部返回自身即可（Config 的值不在测试里做校验）。
+ */
+const SCHEMASTERY_STUB = `
+const chain = () => new Proxy(function () {}, { get: () => chain, apply: () => chain });
+const z = {
+  object: chain, array: chain, string: chain, number: chain, boolean: chain,
+  dict: chain, union: chain, const: chain, any: chain, literal: chain,
+};
+export default z;
+`;
+
 registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === '@deepseek-ai/dsh-credentials') {
       return { url: 'data:text/javascript,' + encodeURIComponent(CREDENTIALS_STUB), shortCircuit: true };
+    }
+    if (specifier === '@deepseek-ai/schemastery') {
+      return { url: 'data:text/javascript,' + encodeURIComponent(SCHEMASTERY_STUB), shortCircuit: true };
     }
     return nextResolve(specifier, context);
   },
@@ -966,4 +984,133 @@ test('非 DeepSeek provider 的按量计费模型：路由返回单价与计费�
   apply(unknown.ctx);
   const none = await call(unknown.routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }));
   assert.equal(none.body.tier.known, false);
+});
+
+// ---- provider 映射（第三方 provider 插件）---------------------------------
+
+const OPENCODE_USAGE = () => new Response(JSON.stringify({
+  usage: {
+    rolling: { status: 'ok', percent: 20 },
+    weekly: { status: 'ok', percent: 40 },
+  },
+}), { status: 200, headers: { 'content-type': 'application/json' } });
+
+test('用户映射：第三方 provider 路由按映射的账户口径查询', async () => {
+  resetFetch();
+  fetchRoutes = { 'opencode.ai/zen/go/v1/usage': OPENCODE_USAGE() };
+  const { ctx, routes } = makeCtx({
+    provider: 'dsh-opencode-go',
+    model: 'deepseek-v4.1-flash',
+    refs: { OPENCODE_API_KEY: 'sk-alias-usage-1' },
+  });
+  apply(ctx, {
+    providerAliases: [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refs: ['OPENCODE_API_KEY'] }],
+  });
+  const res = await call(routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }));
+  assert.equal(res.body.provider.id, 'dsh-opencode-go', '响应里的 id 保持原始路由 id');
+  assert.equal(res.body.provider.kind, 'usage');
+  assert.equal(res.body.provider.via, 'alias');
+  assert.deepEqual(res.body.errors, []);
+  assert.deepEqual(res.body.usage.windows.map((w) => w.key), ['5h', '7d']);
+  assert.equal(res.body.usage.windows[0].percent, 20);
+  assert.equal(res.body.pricing.provider, 'dsh-opencode-go');
+  assert.equal(res.body.pricing.capability, 'opencode-go');
+  assert.ok(
+    upstreamCalls.some((url) => url.includes('opencode.ai/zen/go/v1/usage')),
+    '应查询映射后的账户端点',
+  );
+});
+
+test('没有映射时第三方 provider 仍显示不支持，不猜端点', async () => {
+  resetFetch();
+  const { ctx, routes } = makeCtx({ provider: 'dsh-opencode-go', model: 'deepseek-v4.1-flash' });
+  apply(ctx);
+  const res = await call(routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }));
+  assert.equal(res.body.provider.kind, 'none');
+  assert.equal(res.body.provider.via, 'none');
+  assert.deepEqual(res.body.errors, ['当前插件不支持 dsh-opencode-go']);
+  assert.equal(upstreamCalls.length, 0, '未识别的 provider 不该打任何上游');
+});
+
+test('映射没写 refs 时按派生引用提示该配哪一个', async () => {
+  resetFetch();
+  const { ctx, routes } = makeCtx({ provider: 'dsh-opencode-go', refs: {} });
+  apply(ctx, { providerAliases: [{ provider: 'dsh-opencode-go', capability: 'opencode-go' }] });
+  const res = await call(routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }));
+  assert.equal(res.body.provider.kind, 'usage');
+  assert.deepEqual(res.body.errors, ['未配置 DSH_OPENCODE_GO_API_KEY']);
+  assert.equal(upstreamCalls.length, 0);
+});
+
+test('/accounts?list=1：返回映射选项与未识别路由，且不查上游', async () => {
+  resetFetch();
+  const { ctx, routes } = makeCtx({
+    provider: 'deepseek-official',
+    registered: [
+      { id: 'deepseek-official', name: 'DeepSeek' },
+      { id: 'dsh-opencode-go', name: 'DSH OpenCode Go' },
+    ],
+  });
+  apply(ctx);
+  const res = await call(
+    routes.get('/api/deepseek-usage/accounts'),
+    makeReq({ host: '127.0.0.1:64452' }, '/api/deepseek-usage/accounts?lang=zh&list=1'),
+  );
+  assert.equal(res.status, 200);
+  assert.equal(upstreamCalls.length, 0, '清单模式不得打上游');
+  const aliasable = res.body.aliasable.map((item) => item.id);
+  assert.ok(aliasable.includes('opencode-go'), '受支持提供商应出现在映射选项里');
+  assert.ok(aliasable.includes('moonshotai'));
+  assert.equal(aliasable.includes('anthropic'), false, 'OAuth 类不能作为映射目标');
+  assert.equal(aliasable.includes('deepseek-account'), false, '账号登录路由不能作为映射目标');
+  assert.deepEqual(res.body.unmapped.map((item) => item.id), ['dsh-opencode-go']);
+  assert.equal(res.body.unmapped[0].displayName, 'DSH OpenCode Go', '未识别路由用插件声明的名字');
+});
+
+test('/accounts：映射后的路由按能力条目列出读数', async () => {
+  resetFetch();
+  fetchRoutes = { 'opencode.ai/zen/go/v1/usage': OPENCODE_USAGE() };
+  const { ctx, routes } = makeCtx({
+    provider: 'dsh-opencode-go',
+    refs: { OPENCODE_API_KEY: 'sk-alias-accounts-1' },
+    registered: [{ id: 'dsh-opencode-go', name: 'DSH OpenCode Go' }],
+  });
+  apply(ctx, {
+    providerAliases: [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refs: ['OPENCODE_API_KEY'] }],
+  });
+  const res = await call(routes.get('/api/deepseek-usage/accounts'), makeReq({ host: '127.0.0.1:64452' }));
+  const row = res.body.accounts.find((item) => item.id === 'dsh-opencode-go');
+  assert.ok(row, '当前映射路由必须出现在状态页');
+  assert.equal(row.current, true);
+  assert.equal(row.kind, 'usage');
+  assert.equal(row.capability, 'opencode-go');
+  assert.equal(row.via, 'alias');
+  assert.ok(row.refs.includes('OPENCODE_API_KEY'));
+  assert.deepEqual(row.usage.windows.map((w) => w.key), ['5h', '7d']);
+  assert.deepEqual(res.body.unmapped, [], '已映射的路由不再是未识别路由');
+});
+
+
+test('volatile 配置就地更新后，下一次请求立即使用新映射（无需重启/重跑 apply）', async () => {
+  resetFetch();
+  fetchRoutes = { 'opencode.ai/zen/go/v1/usage': OPENCODE_USAGE() };
+  // 复刻 cordis-plugin-loader 的 _commitVolatile：配置对象不变、引用里的值原地更新，
+  // apply 不会重跑。解析器若在 apply 时拍快照，这里第二次请求仍会返回「不支持」。
+  let value = [];
+  const config = { providerAliases: { get: () => value } };
+  const { ctx, routes } = makeCtx({
+    provider: 'dsh-opencode-go',
+    refs: { OPENCODE_API_KEY: 'sk-volatile-1' },
+  });
+  apply(ctx, config);
+  const route = routes.get('/api/deepseek-usage');
+
+  const before = await call(route, makeReq({ host: '127.0.0.1:64452' }));
+  assert.equal(before.body.provider.kind, 'none');
+
+  value = [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refs: ['OPENCODE_API_KEY'] }];
+  const after = await call(route, makeReq({ host: '127.0.0.1:64452' }));
+  assert.equal(after.body.provider.kind, 'usage');
+  assert.equal(after.body.provider.via, 'alias');
+  assert.deepEqual(after.body.errors, []);
 });

@@ -98,13 +98,14 @@ function loadClient(runtime, lang = 'zh') {
   return loadSlots(runtime, lang)['sidebar.footer.action'];
 }
 
-/** 载入 client.js 并返回按槽位名索引的注册组件表。 */
-function loadSlots(runtime, lang = 'zh') {
+/** 载入 client.js 并返回按槽位名索引的注册组件表。services 模拟 ctx.get(name)。 */
+function loadSlots(runtime, lang = 'zh', services = {}) {
   const win = { __ModuleLoader__: { load: (def) => { win.__def = def; } } };
   new Function('window', 'require', source)(win, (id) => (id === 'react' ? runtime.react : {}));
   const mod = win.__def.factory((id) => (id === 'react' ? runtime.react : {}));
   const registered = {};
   const ctx = {
+    get: (name) => services[name],
     locale: {
       subscribe: () => () => {},
       getSnapshot: () => ({ active: lang, locales: [], revision: 0 }),
@@ -115,8 +116,7 @@ function loadSlots(runtime, lang = 'zh') {
     remote: { $on: () => () => {} },
     effect: (fn) => { fn(); return () => {}; },
     slots: {
-      // 按槽位名分派：本插件注册两个槽位（sidebar.footer.action 与
-      // plugins.detail.section），测试各自取自己要的那个。
+      // 按槽位名分派：本插件注册的槽位各自有测试取用。
       inject: (_n, fn) => fn(),
       register: (meta, comp) => { registered[meta.name] = comp; },
     },
@@ -906,4 +906,177 @@ test('旧宿主的响应（没有 tier.window）：指示灯与倒计时照旧�
   assert.equal(dots.length, 1, '旧宿主也必须显示指示灯');
   const priceRow = titles.find((t) => t.includes('\n'));
   assert.ok(priceRow && priceRow.includes('元'), `缺 currency 时按人民币显示，实际 ${priceRow}`);
+});
+
+
+// ---- provider 映射设置页 ------------------------------------------------
+
+test('映射设置页：回显已有映射，删除后保存写回规范化配置', async () => {
+  const runtime = makeRuntime();
+  const Slot = loadSlots(runtime)['plugins.row.config'];
+  assert.equal(typeof Slot, 'function', '插件行配置槽位必须注册');
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      ok: true,
+      current: 'dsh-opencode-go',
+      accounts: [],
+      aliasable: [{ id: 'opencode-go', displayName: 'OpenCode Go' }],
+      unmapped: [{ id: 'other-plugin', displayName: 'Other Plugin' }],
+      errors: [],
+    }),
+  });
+
+  const writes = [];
+  const form = {
+    state: {
+      status: 'ready',
+      value: { providerAliases: [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refs: ['OPENCODE_API_KEY'] }] },
+      revision: 3,
+      writable: true,
+    },
+    mutate: async (ops) => { writes.push(ops); return true; },
+  };
+  const t = (k) => k;
+  // 槽位入口只是薄包装：逐层调用函数组件，直到拿到真正的元素树。
+  const render = () => runtime.render(() => {
+    let node = Slot({ view: 'page', form, t });
+    while (node && typeof node.type === 'function') node = node.type(node.props);
+    return node;
+  }).out;
+
+  render();
+  await flush();
+  let out = render();
+
+  let inputs = nodesOf(out).filter((n) => n.type === 'input');
+  assert.equal(inputs.length, 2, '一行映射应有两个输入框（provider id 与 refs）');
+  assert.equal(inputs[0].props.value, 'dsh-opencode-go');
+  assert.equal(inputs[1].props.value, 'OPENCODE_API_KEY');
+  const select = nodesOf(out).find((n) => n.type === 'select');
+  assert.equal(select.props.value, 'opencode-go');
+
+  const buttons = () => nodesOf(out).filter((n) => n.type === 'button');
+  buttons().find((b) => b.children.includes('alias.remove')).props.onClick();
+  out = render();
+  assert.equal(nodesOf(out).filter((n) => n.type === 'input').length, 0, '删除后不再有输入框');
+
+  buttons().find((b) => b.children.includes('alias.save')).props.onClick();
+  await flush();
+  assert.deepEqual(writes, [[{ op: 'set', path: ['providerAliases'], value: [] }]]);
+});
+
+test('映射设置页：检测到的未识别路由只预填 id，未选目标不允许保存', async () => {
+  const runtime = makeRuntime();
+  const Slot = loadSlots(runtime)['plugins.row.config'];
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      ok: true,
+      current: 'dsh-opencode-go',
+      accounts: [],
+      aliasable: [{ id: 'opencode-go', displayName: 'OpenCode Go' }],
+      unmapped: [{ id: 'other-plugin', displayName: 'Other Plugin' }],
+      errors: [],
+    }),
+  });
+
+  const writes = [];
+  const form = {
+    state: { status: 'ready', value: { providerAliases: [] }, revision: 1, writable: true },
+    mutate: async (ops) => { writes.push(ops); return true; },
+  };
+  const t = (k) => k;
+  // 槽位入口只是薄包装：逐层调用函数组件，直到拿到真正的元素树。
+  const render = () => runtime.render(() => {
+    let node = Slot({ view: 'page', form, t });
+    while (node && typeof node.type === 'function') node = node.type(node.props);
+    return node;
+  }).out;
+
+  render();
+  await flush();
+  let out = render();
+  assert.ok(textOf(out).includes('alias.empty'));
+
+  const addDetected = nodesOf(out)
+    .filter((n) => n.type === 'button')
+    .find((b) => b.children.join('').includes('other-plugin'));
+  assert.ok(addDetected, '检测到的未识别路由应给出添加入口');
+  addDetected.props.onClick();
+  out = render();
+
+  const inputs = nodesOf(out).filter((n) => n.type === 'input');
+  assert.equal(inputs[0].props.value, 'other-plugin', '只预填 provider id');
+  const select = nodesOf(out).find((n) => n.type === 'select');
+  assert.equal(select.props.value, '', '目标提供商不替用户猜');
+
+  nodesOf(out).filter((n) => n.type === 'button').find((b) => b.children.includes('alias.save')).props.onClick();
+  await flush();
+  out = render();
+  assert.equal(writes.length, 0, '校验失败时不得写配置');
+  assert.ok(textOf(out).includes('alias.capabilityRequired'));
+});
+
+
+test('插件页：bundle 配置区从 configForms 取表单并渲染映射编辑器', async () => {
+  const runtime = makeRuntime();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      ok: true,
+      current: 'dsh-opencode-go',
+      accounts: [],
+      aliasable: [{ id: 'opencode-go', displayName: 'OpenCode Go' }],
+      unmapped: [],
+      errors: [],
+    }),
+  });
+
+  const writes = [];
+  const snapshot = {
+    status: 'ready',
+    value: { providerAliases: [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refs: ['OPENCODE_API_KEY'] }] },
+    revision: 2,
+    writable: true,
+  };
+  const controller = {
+    getSnapshot: () => snapshot,
+    subscribe: () => () => {},
+    mutate: async (ops) => { writes.push(ops); return true; },
+  };
+  const services = {
+    configForms: { get: (id) => (id === 'deepseek-usage' ? controller : undefined) },
+  };
+  const Slot = loadSlots(runtime, 'zh', services)['plugins.bundle.config'];
+  assert.equal(typeof Slot, 'function', 'bundle 配置槽位必须注册');
+
+  const render = () => runtime.render(() => {
+    let node = Slot({ t: (k) => k });
+    while (node && typeof node.type === 'function') node = node.type(node.props);
+    return node;
+  }).out;
+
+  render();
+  await flush();
+  const out = render();
+
+  const inputs = nodesOf(out).filter((n) => n.type === 'input');
+  assert.equal(inputs.length, 2, '映射编辑器应在插件页直接渲染');
+  assert.equal(inputs[0].props.value, 'dsh-opencode-go');
+  assert.equal(inputs[1].props.value, 'OPENCODE_API_KEY');
+
+  nodesOf(out).filter((n) => n.type === 'button').find((b) => b.children.includes('alias.save')).props.onClick();
+  await flush();
+  assert.deepEqual(writes, [[{
+    op: 'set',
+    path: ['providerAliases'],
+    value: [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refs: ['OPENCODE_API_KEY'] }],
+  }]]);
 });

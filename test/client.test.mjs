@@ -281,6 +281,20 @@ test('剩余额度颜色：已用 <80% 绿色，≥80% 红色', () => {
   assert.match(red, /^color-mix\(in srgb, var\(--dsw-alias-state-error-primary/);
 });
 
+test('映射设置页：配置值 ↔ 草稿行，引用文本按 token 解析', () => {
+  assert.deepEqual(
+    I.aliasDraftOf({ providerAliases: [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refs: ['OPENCODE_API_KEY', 'OPENCODE_GO_API_KEY'] }] }),
+    [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refsText: 'OPENCODE_API_KEY, OPENCODE_GO_API_KEY' }],
+  );
+  assert.deepEqual(I.aliasDraftOf(null), []);
+  assert.deepEqual(I.aliasDraftOf({ providerAliases: 'bad' }), []);
+  assert.deepEqual(I.parseRefs('OPENCODE_API_KEY, FOO_BAR'), ['OPENCODE_API_KEY', 'FOO_BAR']);
+  // 非环境变量形态的 token 直接丢弃，与宿主侧校验一致。
+  assert.deepEqual(I.parseRefs('bad-ref 123, OK'), ['OK']);
+  assert.deepEqual(I.parseRefs(''), []);
+  assert.equal(I.ALIASES_PAGE_KEY, '@dougen/dsh-deepseek-usage#deepseek-usage');
+});
+
 function nextChangeOf(days) {
   return I.nextChange(at('2026-10-22T11:00:00+08:00'), days);
 }
