@@ -791,6 +791,20 @@ test('/accounts：映射到 OAuth 目标时也给出令牌状态', async () => {
   assert.deepEqual(res.body.unmapped, [], '映射后不再算未识别');
 });
 
+test('/accounts：chatgpt-codex 路由按 Codex 能力给出令牌状态', async () => {
+  resetFetch();
+  const { ctx, routes } = makeCtx({
+    provider: 'chatgpt-codex',
+    refs: { DSH_USAGE_CODEX_OAUTH_TOKEN: 'codex-token' },
+    registered: [{ id: 'chatgpt-codex', name: 'ChatGPT Codex' }],
+  });
+  apply(ctx);
+  const res = await call(routes.get('/api/deepseek-usage/accounts'), makeReq({ host: '127.0.0.1:64452' }));
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.oauth, [{ id: 'openai-codex', displayName: 'OpenAI Codex', configured: true }]);
+  assert.deepEqual(res.body.unmapped, [], '别名路由是内置支持的，不是未识别');
+});
+
 test('用户映射到 OAuth 目标：按订阅令牌读取，并带 Codex 账号 ID', async () => {
   resetFetch();
   const seen = [];

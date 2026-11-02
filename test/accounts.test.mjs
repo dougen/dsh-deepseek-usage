@@ -46,6 +46,20 @@ test('大小写与空白不影响能力判定', () => {
   assert.equal(accountCapabilityOf('KIMI-CODING').kind, 'usage');
 });
 
+test('provider 路由 id 别名归一：chatgpt-codex 走同一份 Codex 订阅能力', () => {
+  // 第三方 Codex 插件把同一家订阅接口注册成 `chatgpt-codex`；不归一化时会被判成
+  // 「不支持的提供商」，卡片整张置空。
+  const alias = accountCapabilityOf('chatgpt-codex');
+  assert.equal(alias.kind, 'oauth');
+  assert.equal(alias.id, 'openai-codex');
+  assert.equal(alias.tokenRef, 'DSH_USAGE_CODEX_OAUTH_TOKEN');
+  assert.equal(accountCapabilityOf('ChatGPT-Codex').kind, 'oauth');
+  assert.equal(oauthProviderOf('chatgpt-codex').tokenRef, 'DSH_USAGE_CODEX_OAUTH_TOKEN');
+  assert.equal(oauthProviderOf('chatgpt-codex').usage.path, '/backend-api/wham/usage');
+  // 别名不是独立条目：受支持 id 全集里不会多出一条重复行。
+  assert.equal(supportedProviderIds().includes('chatgpt-codex'), false);
+});
+
 test('候选引用：派生引用在前，适配器原生环境名在后', () => {
   assert.deepEqual(candidateRefsOf('moonshotai'), ['MOONSHOTAI_API_KEY', 'MOONSHOT_API_KEY']);
   assert.deepEqual(candidateRefsOf('minimax-cn'), ['MINIMAX_CN_API_KEY', 'MINIMAX_API_KEY']);
