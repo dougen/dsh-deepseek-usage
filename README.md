@@ -8,346 +8,134 @@
 <!-- GitHub and npm both prefix heading ids with `user-content-`, so the in-page anchor needs it -->
 [中文文档](#user-content-中文文档)
 
-A **DeepSeek Harness (DSH)** sidebar plugin that keeps the active provider's account reading and the current model's unit price one glance away — DeepSeek, Moonshot / Kimi, Z.ai (GLM), MiniMax, OpenRouter, Kimi For Coding, OpenCode, and Claude Code / Codex OAuth subscriptions — with a Chinese / English UI.
+A **DeepSeek Harness (DSH)** sidebar plugin that shows, right in the DSH main window, how much money or quota is left on the account behind the currently selected model, and what that model costs right now — without leaving DSH. It supports nine providers and a Chinese / English UI.
 
 <img src="https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot.png" alt="The sidebar card: balance, current unit prices and the billing-window dot" width="520" />
 
-*Balance mode: the account balance, the current model's unit prices, and the peak / off-peak indicator in the top-right corner.*
+*Balance mode (DeepSeek, Kimi, Z.ai, OpenRouter…): the account balance, the current model's input / cache / output unit prices, and the peak / off-peak indicator in the top-right corner.*
 
 <img src="https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot2.png" alt="Subscription usage: remaining quota per billing window" width="520" />
 
-*Subscription mode: one D-shaped gauge per billing window — the number inside is the remaining quota, grey is what has been used, green (red once 80% is used) is what is left, and the badge names the window (`5H` / `7D` / `1M`).*
+*Subscription mode (Kimi For Coding, OpenCode, MiniMax, Claude Code / Codex…): one D-shaped gauge per usage window — the number in the middle is the remaining quota, the grey arc is what has been used, the green arc is what is left (red once 80% is used), and the badge names the window (`5H` = 5-hour, `7D` = weekly, `1M` = monthly).*
 
-## Features
+## What this plugin does
 
-- **The active provider's account, in the sidebar footer.** A balance with its currency symbol (`¥` / `$`), or — for subscription plans that publish no balance — every usage window the endpoint returns, drawn as one D-shaped gauge per quota in the same card: the green arc is the share still available, the grey arc the share already used, the remaining amount sits in the middle as a plain number, and a short badge in the open bottom names the window (`5H` / `7D` / `1M`), with the reset countdown on hover. The remaining arc turns red once 80% of the quota is used. Gauges spread evenly across the card, whether the plan returns one, two or three windows. The card follows the model you have selected, so switching provider switches the reading.
-- **Unit prices of the active model.** Input, input cache and output for the billing window in effect right now, in the currency of the table that priced them (`元` / `$`). They change when you switch models and when the billing window flips.
-- **Billing-window dot.** Shown whenever the model's price table declares time-based windows: DeepSeek's official peak / off-peak schedule (orange during Mon–Fri 09:00–12:00 and 14:00–18:00 Beijing time, green otherwise — evenings, weekends, Chinese public holidays and make-up workdays are all off-peak). Hovering it gives the time left until the next switch as `2d 15h`, `5h 47m` or `23m`. OpenRouter's time-of-day overrides get the same dot. A subscription route that serves a DeepSeek model keeps the same dot (no per-token price is shown for a subscription). Models priced flat all day show the price row alone.
-- **OAuth token fields** for Claude Code and OpenAI Codex, when DSH detects those routes or a provider mapping targets them: they sit on the plugin's own page, under the provider mappings; paste a token and the card starts reporting subscription usage.
-- **Refreshes every 30 seconds**, immediately on click and when the model changes; follows the app light / dark theme and the DSH language; pauses while the tab is hidden.
-- **No invented numbers.** Until the first answer arrives the card shows a placeholder (`—`). A model the price table does not cover gets no price at all rather than a guess.
+DSH lets you switch between many model providers, but each provider hides its account status on a different website. This plugin resolves the provider behind the model you have selected in DSH and puts a live status card for that account at the bottom of the sidebar:
 
-## Supported providers
-
-| Provider | Kind | Endpoint | Credential reference |
-| --- | --- | --- | --- |
-| DeepSeek (`deepseek-official`, `deepseek-account`, `deepseek`) | Balance | `GET https://api.deepseek.com/user/balance` — the API-key routes honour `DEEPSEEK_BASE_URL`, `deepseek-account` always calls the official host | `DEEPSEEK_API_KEY`; `deepseek-account` uses the signed-in account grant |
-| Moonshot / Kimi (`moonshotai`) | Balance | `GET /v1/users/me/balance` — USD on `api.moonshot.ai`, then CNY on `api.moonshot.cn` | `MOONSHOTAI_API_KEY`, `MOONSHOT_API_KEY` |
-| Z.ai / GLM (`zai`) | Balance | `GET /api/biz/account/query-customer-account-report` — Bearer on `api.z.ai`, raw key on `open.bigmodel.cn` | `ZAI_API_KEY`, `ZAI_CODING_CN_API_KEY` |
-| OpenRouter (`openrouter`) | Balance | `GET /api/v1/key`, falling back to `GET /api/v1/credits` when the key carries no limit | `OPENROUTER_API_KEY` |
-| Kimi For Coding (`kimi-coding`) | Subscription usage | `GET https://api.kimi.com/coding/v1/usages` | `KIMI_CODING_API_KEY`, `KIMI_API_KEY` |
-| OpenCode (`opencode`, `opencode-go`) | Subscription usage | `GET https://opencode.ai/zen/go/v1/usage` | `OPENCODE_GO_API_KEY`, `OPENCODE_API_KEY` |
-| MiniMax (`minimax`, `minimax-cn`) | Subscription usage | `GET /v1/token_plan/remains` on `www.minimax.io` / `api.minimaxi.com` | `MINIMAX_CN_API_KEY`, `MINIMAX_API_KEY` |
-| Claude Code (`anthropic`) | OAuth subscription | `GET https://api.anthropic.com/api/oauth/usage` | `DSH_USAGE_CLAUDE_OAUTH_TOKEN` |
-| OpenAI Codex (`openai-codex`) | OAuth subscription | `GET https://chatgpt.com/backend-api/wham/usage` | `DSH_USAGE_CODEX_OAUTH_TOKEN` + `DSH_USAGE_CODEX_ACCOUNT_ID` |
-
-Each provider reads the reference the Models page writes for that route first (`<ROUTE>_API_KEY`, with non-alphanumerics turned into `_`), then the adapter's own environment name — so a key typed on the Models page and one exported in your shell both work. When a key is missing, the card names the reference it looked for. `deepseek-account` is the exception: that route has no key to configure — it reads the grant left by signing in to DeepSeek in DSH and sends it as `x-dsh-auth-token`.
-
-`deepseek` is the pi-ai route for the same DeepSeek balance as `deepseek-official` — same endpoint, same `DEEPSEEK_API_KEY` and the same price snapshot. Both are recognized natively, but the mapping target list offers only `deepseek-official`, so a mapping never has two identical DeepSeek choices.
-
-Every subscription endpoint returns all of its usage windows in a single response, so the card lists them side by side without a request per window: OpenCode reports 5-hour, weekly and monthly; Kimi For Coding reports 5-hour, weekly and, when the account has one, monthly; Claude Code reports 5-hour, weekly and a separate Opus weekly window; Codex reports 5-hour and weekly; MiniMax reports an interval plus a weekly window per quota bucket (the card shows the tightest bucket for each). Vendors disagree on whether a number means used or remaining, so every reading is normalised to **used**.
+- **Account reading.** Two forms, depending on what the provider offers:
+  - *Balance providers* (DeepSeek, Moonshot / Kimi, Z.ai, OpenRouter) publish the account balance, so the card shows it with its currency symbol (`¥` / `$`).
+  - *Subscription providers* (Kimi For Coding, OpenCode, MiniMax, Claude Code, OpenAI Codex) publish no balance, only usage windows. The card draws one gauge per window — 5-hour, weekly, monthly, whatever the endpoint returns — and shows how much of each quota remains, turning red once 80% is used.
+  - The card always follows the selected model, so switching provider switches the reading; no per-provider setup beyond the credential.
+- **Unit prices of the current model.** The card lists input, input-cache and output prices for the billing period in effect right now, in the provider's own currency. When a provider bills by time of day — DeepSeek's official peak / off-peak schedule (Mon–Fri 09:00–12:00 and 14:00–18:00 Beijing time is peak, evenings, weekends and holidays are off-peak) or OpenRouter's time-of-day pricing — an orange / green dot marks which window is active, and hovering it shows the time left until the next switch.
+- **Reliable numbers.** It refreshes every 30 seconds, immediately on click and when the model changes. Until the first answer arrives it shows a placeholder (`—`) rather than a guess, and a model the price table does not cover gets no price at all. The interface follows the DSH language (Chinese / English) and light / dark theme.
 
 > [!NOTE]
-> When GitHub Copilot (OAuth only), Google, Google Vertex, Amazon Bedrock or Azure (cloud AK/SK) are configured or currently active, the sidebar card states the reason instead of showing a number; this plugin deliberately does not handle those credential kinds. OpenCode's Zen wallet balance has no API-key-readable endpoint ([anomalyco/opencode#44189](https://github.com/anomalyco/opencode/issues/44189)), so only the subscription usage windows above are available.
+> GitHub Copilot, Google, Amazon Bedrock, Azure and other credential kinds this plugin deliberately does not handle will get a short reason in the card instead of a number.
 
-### Third-party provider plugins
+## Installation and usage
 
-Some provider plugins register a route id of their own while calling the same vendor subscription. `dsh-opencode-go`, for example, registers the route `dsh-opencode-go` and queries the same OpenCode Go account as the built-in `opencode-go` route. This plugin resolves a provider by exact id, so the extra route reads as *not supported* until you map it:
+**Step 1 — configure the provider's credential.** The plugin queries each provider with the key you already use for that provider: fill it on the **Models page in DSH**, or export it as an environment variable (`DEEPSEEK_API_KEY`, `MOONSHOTAI_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `KIMI_CODING_API_KEY`, `OPENCODE_API_KEY`, `MINIMAX_API_KEY`, …). The `deepseek-account` route is the exception: it needs no key — sign in to DeepSeek inside DSH and the card reads that account grant.
 
-1. Open **Plugins → @dougen/dsh-deepseek-usage**. The **Provider mappings** editor sits at the top of that page, above the component list; the row title (with `›`) opens the same editor on the row's own page.
-2. Add a mapping: the provider id the plugin registered, and the supported provider it should read (`opencode-go` for `dsh-opencode-go`).
-3. Save. The card picks it up immediately, with no restart.
+**Step 2 — install the plugin into the `web` profile:**
 
-The editor lists the routes DSH has registered but this plugin cannot recognize, so adding one is a click on the suggestion; the target provider is never guessed. Credential refs are optional: when empty, the route's own `<ROUTE>_API_KEY` is tried first, then the target provider's default references. Name them explicitly to follow a plugin that stores keys under its own account references (for example `DSH_OPENCODE_GO_ACCOUNT_*`).
-
-OAuth targets work the same way: map a third-party Codex or Claude Code route to `openai-codex` / `anthropic` and save; the token field then appears in the **Subscription token** section below, and the plugin reads that subscription's quota with the token saved there. Those mapping rows show no credential-refs field — the token lives in the credential store, never in the mapping configuration.
-
-The same mapping can be written by hand in the profile's `cordis.patch.yml`:
-
-```yaml
-- id: deepseek-usage
-  name: '@dougen/dsh-deepseek-usage'
-  config:
-    providerAliases:
-      - provider: dsh-opencode-go
-        capability: opencode-go
-        refs: [OPENCODE_API_KEY]
+```sh
+dsh plugin --profile web add @dougen/dsh-deepseek-usage
 ```
 
-A mapping only applies to route ids the built-in table does not know: the exact ids above always win and are never overridden. On a DSH whose Plugins page does not serve plugin configuration, use the YAML form.
+**Step 3 — restart `dsh web`** and open the URL it prints. The card sits at the bottom of the sidebar, below the Cordis panel button; click it to refresh right away.
 
-## Requirements
+<details>
+<summary>Using a Claude Code / OpenAI Codex subscription (OAuth)</summary>
 
-| DSH | Plugin version |
-| --- | --- |
-| `0.2.x` (`0.2.0-rc.1` and later) | `0.11.0` and later |
-| `0.1.x` (`0.1.0-rc.6` and later) | `0.10.x`, or `0.11.0` and later |
+An API key cannot read these subscriptions — they share an OAuth token instead. When DSH detects Claude Code or OpenAI Codex (or a provider mapping targets one of them), a token field appears on the plugin's own page (**Plugins → @dougen/dsh-deepseek-usage**), under the provider mappings. Paste the token there and the sidebar card starts reporting that subscription's remaining quota:
 
-`dsh --version` prints your DSH version. Installing without a version picks the newest compatible release; name an exact version (`@dougen/dsh-deepseek-usage@0.10.2`) when the newest does not match your DSH.
+- **Claude Code** — on a machine signed in to Claude Code, copy `claudeAiOauth.accessToken` from `~/.claude/.credentials.json` (on macOS: the `Claude Code-credentials` keychain item). A token minted by `claude setup-token` also works.
+- **OpenAI Codex** — copy `tokens.access_token` from `~/.codex/auth.json` into the token field, and `tokens.account_id` into the account ID field.
 
-## Getting started
+Tokens are stored through DSH's credential service (`~/.dsh/.credentials.yaml`) and never leave this machine: no response, log line or page element carries one back. The **Clear** button removes them again.
+</details>
 
-1. Configure the API key for the provider you want to query — on the Models page in DSH, or as its environment variable (`DEEPSEEK_API_KEY`, and so on). For `deepseek-account`, sign in to DeepSeek in DSH instead: that route reads the account grant, not a key.
-2. Install the plugin into the `web` profile:
-
-   ```sh
-   dsh plugin --profile web add @dougen/dsh-deepseek-usage
-   ```
-
-3. Restart `dsh web` and open the URL it prints. The card sits at the bottom of the sidebar, below the Cordis panel button.
-
-Click the card to refresh it; while it still has no reading it retries after 4, 8, 15 and 30 seconds.
-
-To uninstall:
+<details>
+<summary>Uninstall</summary>
 
 ```sh
 dsh plugin --profile web remove @dougen/dsh-deepseek-usage
 ```
 
 Then restart `dsh web`.
+</details>
 
-## OAuth tokens (Claude Code / Codex)
+## Supported DSH versions
 
-Open the plugin's own page in **Plugins**: when DSH detects Claude Code or OpenAI Codex — or when a provider mapping targets one of them — a token field for that route appears under the **Provider mappings** editor, above the component list. Paste a token there and the sidebar card starts reporting that subscription's usage.
+Use a plugin version that matches your DSH:
 
-### Claude Code
+| DSH version | Plugin version to install |
+| --- | --- |
+| `0.2.x` (from `0.2.0-rc.1` on) | `0.11.0` or later |
+| `0.1.x` (from `0.1.0-rc.6` on) | `0.10.x`, or `0.11.0` or later |
 
-On a machine signed in to Claude Code, copy `claudeAiOauth.accessToken` from `~/.claude/.credentials.json` (on macOS: the `Claude Code-credentials` keychain item). A token minted by `claude setup-token` also works, but it carries only `user:inference`, so the plugin reads the 5-hour and 7-day windows from rate-limit response headers instead of the full usage body.
-
-### OpenAI Codex
-
-Copy `tokens.access_token` from `~/.codex/auth.json` into the token field, and `tokens.account_id` into the account ID field (sent as the `ChatGPT-Account-Id` header).
-
-### Where tokens live
-
-Tokens are stored through DSH's credential service (`~/.dsh/.credentials.yaml`) and stay on this machine: no response, log line or page element ever carries one back. **Clear** removes them again.
-
-## Pricing data
-
-Prices are one built-in snapshot per provider, `PRICE_TABLES` in `lib/pricing.js`. A model is priced only when its provider **and** its model id are in a table; everything shares one lookup path (`quoteAt`). There is no price file and no background sync — prices change only when a new version of the plugin ships.
-
-| Table (provider id) | Currency | Snapshot | Models and billing windows |
-| --- | --- | --- | --- |
-| DeepSeek (`deepseek-official`, `deepseek-account`, `deepseek`) | CNY | 2026-09-10 | `deepseek-flash`, `deepseek-v4-pro`, `deepseek-chat`, `deepseek-reasoner`; peak / off-peak schedule, with aliases `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` |
-| Moonshot / Kimi (`moonshotai`) | USD | 2026-10-27 | `kimi-k3.1-pro`, `kimi-k3.1-pro-highspeed`, `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed`, `kimi-k2.6` |
-| Z.ai (`zai`) | USD | 2026-10-27 | `glm-5.3`, `glm-5.3-flash`, `glm-5.3-flashx`, `glm-5.2`, `glm-5.1`, `glm-5`, `glm-4.7`, `glm-4.7-flashx`, `glm-4.6`, `glm-4.6v`, `glm-4.5`, `glm-4.5-air` |
-| MiniMax international (`minimax`) | USD | 2026-10-27 | `minimax-m3`, `minimax-m3.1-flash` |
-| MiniMax China (`minimax-cn`) | CNY | 2026-10-27 | `minimax-m3`, `minimax-m3.1-flash` |
-| OpenRouter (`openrouter`) | USD | 2026-10-27 | `deepseek/deepseek-v4.1-flash-1017` (time-based), `deepseek/deepseek-v4.1-flash`, `claude-sonnet-5.5`, `gpt-6.1-sol`, `gemini-3.8-flash`, `grok-4.7`, `glm-4.6`, `minimax-m3.1-flash` |
-
-### Billing windows
-
-- **DeepSeek** — peak prices (`standard`) apply Mon–Fri 09:00–12:00 and 14:00–18:00 Beijing time, excluding Chinese public holidays; everything else (evenings, weekends, holidays, make-up workdays) is off-peak (`offPeak`). `deepseek-chat` and `deepseek-reasoner` have the same price in both windows but still get the indicator (hover it for the remaining time).
-- **OpenRouter** — `deepseek/deepseek-v4.1-flash-1017` carries its own weekday 09:00–12:00 / 14:00–18:00 windows, without the Chinese holiday rule.
-- **Everything else** is priced flat all day: the price row appears without a dot.
-
-> [!WARNING]
-> The Chinese holiday table (`HOLIDAY_RANGES` in `lib/pricing.js`) currently covers 2026. The State Council usually publishes next year's arrangement in November; update the table, the browser-side mirror and `HOLIDAY_TABLE_THROUGH_YEAR` then. Until you do, holidays are billed as ordinary workdays and the host logs a warning once a day.
-
-### Limits of the table
-
-- Only one price per model is stored, so provider-side tiers that are not time-based are not modelled: MiniMax M3's input-length tiers and priority service, GLM-5.1's ≥32K input tier, and OpenRouter's per-upstream spread (the gateway table records the default-route price). The card shows the base tier.
-- Each table follows **one storefront**, because the same model id is priced differently per site: Moonshot / Kimi and Z.ai use international USD prices; MiniMax is split into `minimax` (USD, `.io`) and `minimax-cn` (CNY, `.cn`). A key on the other storefront will not match its bill.
-- A model newer than the plugin release is not priced until the table catches up — the plugin never guesses a price from the model name.
-- Models reached through a third-party gateway (a relay, a self-hosted endpoint, Workbuddy) are billed by that gateway. A vendor API reports **your own account** at that vendor, which is a different fact; if your DeepSeek key is configured but the active model runs on a gateway, the card shows that gateway's status or its reason — not your DeepSeek balance, and not what the gateway is charging.
-
-### Updating a price table
-
-Edit `PRICE_TABLES` in `lib/pricing.js` — one block per provider id with `currency`, `asOf`, and one `models` entry per official model id: `standard: { input, cacheRead, output }` (per 1M tokens). A model with a cheaper time window gets `offPeak: { … }` plus a provider-level `schedule`: `peakWindows` marks the expensive ranges (prices are `standard` inside, `offPeak` outside), `days: 'everyday' | 'weekdays'`, `offsetMinutes` for the time zone, and `holidays: true` only where Chinese public holidays apply. Legacy model names go in that provider's `aliases`. Models absent from a table stay unpriced.
-
-## How it works
-
-The plugin has two halves, both plain ESM with no build step. The host registers four local routes:
-
-| Route | Method | Purpose |
-| --- | --- | --- |
-| `/api/deepseek-usage` | `GET` (`?lang=zh\|en`) | the active model's provider reading, price tier and billing-window state |
-| `/api/deepseek-usage/accounts` | `GET` | mapping targets, detected-but-unrecognized routes, and OAuth token state for the plugin page |
-| `/api/deepseek-usage/token` | `POST` | save or clear an OAuth token |
-| `/api/deepseek-usage/holidays` | `GET` | the public-holiday table for the browser half |
-
-- **Host** (`lib/index.js`, `lib/accounts.js`, `lib/providers.js`, `lib/pricing.js`) resolves the active model's provider from `agentDefaultModel` on every request — exact id first, then the user's provider mappings — resolves that provider's credential reference through DSH's credential service, calls the matching endpoint with a 15-second timeout and a 64 KiB response cap, then classifies any failure into a short, actionable message. `lib/providers.js` is the mapping layer: it validates the configured aliases and returns the capability entry plus candidate credential refs. Readings are cached for 10 seconds and keyed by provider capability, endpoint and credential, with in-flight coalescing, so a second tab or a click does not repeat the upstream call.
-- **Browser** (`lib/client.js`) renders that answer into the `sidebar.footer.action` slot and registers the plugin page's configuration area (`plugins.bundle.config`: the provider mappings editor plus the OAuth token fields below it) together with the `plugins.row.config` page that edits the provider mappings. It holds no pricing logic: the dot and the prices all come from the same answer. It re-reads every 30 seconds, on click and when the model changes, and mirrors the holiday table only as a fallback if the host route is unavailable.
-- **Local only.** Every route answers only to local callers: the `Host` header must name a loopback address (or the address the server is bound to), cross-site browser requests and foreign `Origin` headers are refused, only the documented methods are accepted, and the token route requires JSON with a bounded body. Credentials never cross to the browser — no response carries a key, a token or an upstream error message. A local process on the same machine can still read the routes; that is inherent to a local tool.
-
-## Troubleshooting
-
-**The card is blank, with a reason instead of numbers.**
-
-- *`DEEPSEEK_API_KEY is not configured`* / another reference name — set it in DSH settings (Models page) and restart.
-- *`Not signed in to a DeepSeek account`* — `deepseek-account` reports the grant from DSH sign-in; sign in to DeepSeek in DSH and the card starts reading the balance.
-- *The key contains characters an HTTP header cannot carry* — usually a stray newline from a copy-paste; re-copy it without the line break.
-- *Balance API HTTP n / timed out / unreachable / returned an unreadable response / returned no balance* — click the card to retry; check the network and the provider's status page.
-- *The account is currently unavailable* — the balance API answered with `is_available: false`.
-- *`This plugin does not support <provider>`* — the active provider has no readable balance or usage API (see above).
-- *`This provider has no OAuth token yet`* / *`The OAuth token is no longer valid`* — paste or replace the token on the plugin's page.
-
-If `DEEPSEEK_BASE_URL` points at a third-party gateway, only that gateway's answer is available: the official balance endpoint `https://api.deepseek.com/user/balance` is never called, and only DeepSeek's official platform is supported. This override covers the API-key routes; `deepseek-account` always queries the official host, because the account grant is valid there only.
-
-The card never shows an upstream error message verbatim: transport details stay in the host log, and the card carries a short, actionable line instead.
+Run `dsh --version` to check your DSH version. Installing without an explicit version picks the newest compatible release automatically; if the newest release does not match your DSH, pin an exact one, e.g. `@dougen/dsh-deepseek-usage@0.10.2`.
 
 ---
 
 ## 中文文档
 
-一个 **DeepSeek Harness（DSH）** 的侧边栏插件：不离开 DSH 就能看到**当前模型提供商的账户还剩多少**、**当前模型此刻什么价**——覆盖 DeepSeek、Moonshot / Kimi、Z.ai（GLM）、MiniMax、OpenRouter、Kimi For Coding、OpenCode，以及 Claude Code / Codex 的 OAuth 订阅，界面支持中文与英文。
+一个 **DeepSeek Harness（DSH）** 的侧边栏插件：在 DSH 主界面就能看到**当前选中模型背后的账户还剩多少钱 / 多少额度**、**这个模型此刻什么价**。覆盖九家提供商，界面支持中文与英文。
 
-### 功能
+### 这个插件是干嘛的
 
-- **侧边栏底部的账户读数**：余额带币种符号（`¥` / `$`）；订阅制没有余额接口，就在同一张卡片里为接口返回的每个用量窗口画一个 D 形仪表盘——绿色弧是还没用完的额度，灰色弧是已经用掉的部分，弧内数字是剩余量（不带百分号），底部缺口嵌着周期缩写徽章（`5H`、`7D`、`1M`），重置倒计时放在悬浮说明里；已用达到 80% 后剩余弧变红。无论返回 1 个、2 个还是 3 个窗口，仪表盘都在卡片里均分居中。读数跟随当前选中的模型，切换提供商即切换读数。
-- **当前模型的单价**：输入 / 输入缓存 / 输出，按此刻生效的计费时段显示，币种跟给价的那张表走（`元` / `$`）。切换模型、跨过计费区间切换点时会跟着变。
-- **计费区间指示灯**：价格表声明了分时段计费时出现。DeepSeek 为官方峰谷：高峰（周一至周五 09:00–12:00、14:00–18:00 北京时间，不含中国法定节假日）橙色，其余时间绿色——周末、法定节假日、调休上班的周末都按空闲处理；指针悬停时给出距下次切换的剩余时间（`2d 15h`、`5h 47m`、`23m`）。OpenRouter 的分时 overrides 用同一套指示灯。订阅制路由上跑的若是 DeepSeek 模型，也照旧显示指示灯（订阅制不显示按 token 的单价）。全天一价的模型只显示单价行。
-- **OAuth 令牌填写**：DSH 检测到 Claude Code / Codex，或有映射目标指向它们时，令牌填写框出现在本插件详情页「提供商映射」区域下方；粘贴令牌后侧边栏卡片即可显示订阅用量。
-- **每 30 秒自动刷新**，点击卡片或切换模型时立即刷新；跟随应用明暗主题与 DSH 语言；标签页隐藏时暂停心跳。
-- **不编数字**：第一次响应回来之前显示占位符 `—`；价格表未收录的模型不显示价格，也不按模型名猜。
+DSH 可以切换很多家模型提供商，但每家的账户状况藏在不同的网站后台。这个插件会解析你在 DSH 里当前选中的模型属于哪家提供商，把那个账户的实时状态卡片放进 DSH 主界面侧边栏底部：
 
-### 支持的提供商
-
-| 提供商 | 类型 | 接口 | 密钥引用 |
-| --- | --- | --- | --- |
-| DeepSeek（`deepseek-official`、`deepseek-account`、`deepseek`） | 余额 | `GET https://api.deepseek.com/user/balance`——api-key 路由遵循 `DEEPSEEK_BASE_URL`，`deepseek-account` 恒用官方源 | `DEEPSEEK_API_KEY`；`deepseek-account` 用账号登录留下的 grant |
-| Moonshot / Kimi（`moonshotai`） | 余额 | `GET /v1/users/me/balance`——`api.moonshot.ai` 为 USD，回落 `api.moonshot.cn` 为 CNY | `MOONSHOTAI_API_KEY`、`MOONSHOT_API_KEY` |
-| 智谱 Z.ai / GLM（`zai`） | 余额 | `GET /api/biz/account/query-customer-account-report`——`api.z.ai` 用 Bearer，`open.bigmodel.cn` 用裸 Key | `ZAI_API_KEY`、`ZAI_CODING_CN_API_KEY` |
-| OpenRouter（`openrouter`） | 余额 | `GET /api/v1/key`；该 Key 无限额时回落 `GET /api/v1/credits` | `OPENROUTER_API_KEY` |
-| Kimi For Coding（`kimi-coding`） | 订阅用量 | `GET https://api.kimi.com/coding/v1/usages` | `KIMI_CODING_API_KEY`、`KIMI_API_KEY` |
-| OpenCode（`opencode`、`opencode-go`） | 订阅用量 | `GET https://opencode.ai/zen/go/v1/usage` | `OPENCODE_GO_API_KEY`、`OPENCODE_API_KEY` |
-| MiniMax（`minimax`、`minimax-cn`） | 订阅用量 | `GET /v1/token_plan/remains`——`www.minimax.io` / `api.minimaxi.com` | `MINIMAX_CN_API_KEY`、`MINIMAX_API_KEY` |
-| Claude Code（`anthropic`） | OAuth 订阅 | `GET https://api.anthropic.com/api/oauth/usage` | `DSH_USAGE_CLAUDE_OAUTH_TOKEN` |
-| OpenAI Codex（`openai-codex`） | OAuth 订阅 | `GET https://chatgpt.com/backend-api/wham/usage` | `DSH_USAGE_CODEX_OAUTH_TOKEN` + `DSH_USAGE_CODEX_ACCOUNT_ID` |
-
-每个提供商先读模型页为该路由写入的 `<路由名>_API_KEY`（非字母数字换成 `_`），然后读适配器自己声明的环境变量名——无论密钥是当初在模型页键入的，还是在 shell / `.env` 里导出的，都能读到。缺密钥时卡片会点名它查过的引用。`deepseek-account` 是例外：这条路由没有可配的 Key，它读的是在 DSH 里登录 DeepSeek 后留下的 grant，并以 `x-dsh-auth-token` 发送。
-
-`deepseek` 与 `deepseek-official` 读的是同一笔 DeepSeek 余额：端点、`DEEPSEEK_API_KEY` 与价格快照都相同。两条路由都按内置 id 识别，但映射目标里只列 `deepseek-official`，因此下拉不会出现两个含义相同的 DeepSeek 选项。
-
-每个订阅接口都在**一次响应**里返回全部用量窗口，卡片因此可以并排列出，不必每个窗口各发一次请求：OpenCode 给 5 小时 / 周 / 月；Kimi For Coding 给 5 小时 / 周，账号有月额度时再给月；Claude Code 给 5 小时 / 周，以及单独的 Opus 周窗口；Codex 给 5 小时 / 周；MiniMax 给「区间 + 周」两档、每个额度桶各一份（卡片取每档里最紧的桶）。各家对"已用"和"剩余"的口径不一致，解析时统一折算成**已用**。
+- **账户读数**，按提供商公开的内容分两种形态：
+  - *余额类*（DeepSeek、Moonshot / Kimi、智谱 Z.ai、OpenRouter）公开账户余额，卡片直接显示带币种符号（`¥` / `$`）的余额。
+  - *订阅类*（Kimi For Coding、OpenCode、MiniMax、Claude Code、OpenAI Codex）没有余额可查，只公开用量窗口。卡片按接口返回的窗口各画一个仪表盘——5 小时、周、月，返回几个画几个——显示每份额度还剩多少，已用达到 80% 时剩余弧变红。
+  - 卡片始终跟随当前选中的模型，切换提供商即切换读数；除凭据外不需要针对某家提供商再做任何配置。
+- **当前模型的单价**。卡片列出输入 / 输入缓存 / 输出的单价，按此刻生效的计费时段取值，币种跟该提供商保持一致。有的提供商按时段计价——DeepSeek 官方峰谷（北京时间周一至周五 09:00–12:00、14:00–18:00 为高峰，夜间、周末、节假日为空闲）或 OpenRouter 的分时定价——卡片会用一枚橙 / 绿指示灯标出当前时段，悬浮可见距下次切换还剩多久。
+- **数字可靠**。每 30 秒自动刷新，点击卡片或切换模型时立即刷新。第一次响应回来之前显示占位符 `—`，不猜数；价格表未收录的模型干脆不显示价格。界面跟随 DSH 语言（中文 / 英文）与明暗主题。
 
 > [!NOTE]
-> GitHub Copilot（仅 OAuth）、Google、Google Vertex、Amazon Bedrock、Azure（云厂商 AK/SK）被配置或正好是当前提供商时，侧边栏卡片写明原因而不是给一个数字——这些凭据形态本插件有意不处理。OpenCode 的 Zen 钱包余额没有可用 API Key 读取的接口（[anomalyco/opencode#44189](https://github.com/anomalyco/opencode/issues/44189)），只有上面的订阅用量窗口可读。
+> GitHub Copilot、Google、Amazon Bedrock、Azure 等本插件有意不处理的凭据形态，卡片上会写明原因而不是给一个数字。
 
-### 第三方 provider 插件
+### 如何安装和使用
 
-有些 provider 插件会注册自己的路由 id，但调用的是同一个厂商订阅。例如 `dsh-opencode-go` 注册的 `dsh-opencode-go` 走的就是内置 `opencode-go` 那笔 OpenCode Go 账户。本插件按精确 id 识别提供商，所以这条额外路由在映射之前会显示「不支持」：
+**第 1 步——配置提供商的凭据。** 插件用你给该提供商配的那把 Key 查询：在 DSH 设置的**模型页**填好，或导出为环境变量（`DEEPSEEK_API_KEY`、`MOONSHOTAI_API_KEY`、`ZAI_API_KEY`、`OPENROUTER_API_KEY`、`KIMI_CODING_API_KEY`、`OPENCODE_API_KEY`、`MINIMAX_API_KEY` 等）。`deepseek-account` 是例外：它不需要密钥——在 DSH 里登录 DeepSeek 账号即可，卡片读的是登录留下的授权。
 
-1. 打开 **Plugins → @dougen/dsh-deepseek-usage**。「提供商映射」编辑器就在这一页顶部、组件列表上方；点组件行标题（带 `›`）打开的行页面里是同一份编辑器。
-2. 添加映射：左边填插件注册的 provider id，右边选它应该按哪个受支持提供商查询（`dsh-opencode-go` 选 `opencode-go`）。
-3. 保存。侧边栏卡片立即生效，不需要重启。
+**第 2 步——把插件装进 `web` profile：**
 
-编辑器会列出 DSH 里已注册、但本插件不认识的路由，点一下就填好 provider id；目标提供商不会替你猜。凭据引用可以留空：留空时先试该路由自己的 `<路由名>_API_KEY`，再试目标提供商的默认引用。若插件把密钥存在自己的账号引用下（例如 `DSH_OPENCODE_GO_ACCOUNT_*`），在这里显式写上。
-
-OAuth 目标同理：把第三方 Codex / Claude Code 路由映射到 `openai-codex` / `anthropic` 并保存，下方就会出现在「订阅令牌」区，插件用那里保存的 OAuth 令牌读取该订阅的余量。这类映射行不显示凭据引用栏——令牌存在凭据服务里，不写进映射配置。
-
-同一份映射也可以手写在 profile 的 `cordis.patch.yml`：
-
-```yaml
-- id: deepseek-usage
-  name: '@dougen/dsh-deepseek-usage'
-  config:
-    providerAliases:
-      - provider: dsh-opencode-go
-        capability: opencode-go
-        refs: [OPENCODE_API_KEY]
+```sh
+dsh plugin --profile web add @dougen/dsh-deepseek-usage
 ```
 
-映射只对内置能力表里没有的路由生效：上表里的精确 id 永远优先，不会被映射覆盖。DSH 的 Plugins 页不提供插件配置表单时，用 YAML 手写即可。
+**第 3 步——重启 `dsh web`**，打开它打印的地址。卡片位于侧边栏底部、Cordis 面板按钮下方；点击卡片可立即刷新。
 
-### 版本要求
+<details>
+<summary>使用 Claude Code / OpenAI Codex 订阅（OAuth）</summary>
 
-| DSH | 插件版本 |
-| --- | --- |
-| `0.2.x`（`0.2.0-rc.1` 起） | `0.11.0` 及以后 |
-| `0.1.x`（`0.1.0-rc.6` 起） | `0.10.x`，或 `0.11.0` 及以后 |
+API Key 读不到这两种订阅——它们走 OAuth 令牌。当 DSH 检测到 Claude Code 或 OpenAI Codex（或有映射目标指向其中之一），插件详情页（**Plugins → @dougen/dsh-deepseek-usage**）的提供商映射下方会出现令牌填写框。把令牌粘贴进去，侧边栏卡片即可开始显示该订阅的余量：
 
-`dsh --version` 查看当前 DSH 版本。不带版本号安装会取最新的兼容版本；最新版与你的 DSH 不匹配时，用 `@dougen/dsh-deepseek-usage@0.10.2` 这样的完整版本号指定。
+- **Claude Code**——在已登录 Claude Code 的机器上，从 `~/.claude/.credentials.json` 复制 `claudeAiOauth.accessToken`（macOS 在钥匙串项 `Claude Code-credentials` 里）。`claude setup-token` 产生的令牌也能用。
+- **OpenAI Codex**——从 `~/.codex/auth.json` 复制 `tokens.access_token` 填进令牌框，`tokens.account_id` 填进账号 ID 框。
 
-### 安装
+令牌经 DSH 的凭据服务保存在本机（`~/.dsh/.credentials.yaml`），任何响应、日志、页面元素都不会把它带出去；点**清除**按钮即可删除。
+</details>
 
-1. 在 DSH 设置（模型页）里配置要查的提供商的 API Key，或导出对应的环境变量（DeepSeek 是 `DEEPSEEK_API_KEY`，其余同理）。`deepseek-account` 不需要密钥：在 DSH 里登录 DeepSeek 账号即可，这条路由读的是登录留下的 grant。
-2. 装进 `web` profile：
-
-   ```sh
-   dsh plugin --profile web add @dougen/dsh-deepseek-usage
-   ```
-
-3. 重启 `dsh web`，打开它打印的地址：卡片位于侧边栏底部、Cordis 面板按钮下方。
-
-点击卡片即可刷新；还没拿到读数时，会按 4、8、15、30 秒的节奏补几次请求。
-
-卸载：
+<details>
+<summary>卸载</summary>
 
 ```sh
 dsh plugin --profile web remove @dougen/dsh-deepseek-usage
 ```
 
 然后重启 `dsh web`。
+</details>
 
-### OAuth 令牌（Claude Code / Codex）
+### 支持的 DSH 版本
 
-打开 **Plugins** 面板里本插件的详情页：DSH 检测到 Claude Code 或 OpenAI Codex，或者有映射目标指向它们时，对应路由会有一个令牌填写框，位置在「提供商映射」编辑器下方、组件列表上方。粘贴令牌后，侧边栏卡片即可显示该订阅的用量。
+插件版本要与 DSH 版本相配：
 
-**Claude Code**——在已登录 Claude Code 的机器上，从 `~/.claude/.credentials.json` 的 `claudeAiOauth.accessToken` 复制（macOS 在钥匙串项 `Claude Code-credentials` 里）。`claude setup-token` 产生的令牌也能用，但它只带 `user:inference` 权限，插件改为从推理响应的限流头读取 5 小时与 7 天两个窗口。
+| DSH 版本 | 应安装的插件版本 |
+| --- | --- |
+| `0.2.x`（`0.2.0-rc.1` 起） | `0.11.0` 及以后 |
+| `0.1.x`（`0.1.0-rc.6` 起） | `0.10.x`，或 `0.11.0` 及以后 |
 
-**OpenAI Codex**——从 `~/.codex/auth.json` 的 `tokens.access_token` 复制，并把 `tokens.account_id` 填进账号 ID 一栏（它会作为 `ChatGPT-Account-Id` 请求头发送）。
-
-令牌经 DSH 的凭据服务保存在本机（`~/.dsh/.credentials.yaml`），不出这台机器：任何响应、日志、页面元素都不会把它带回来。点**清除**即可删除。
-
-### 价格数据
-
-价格是 `lib/pricing.js` 里的 `PRICE_TABLES`：一家提供商一份内置快照。只有 provider 与模型 id 都在表里才给价，所有提供商共用同一段查表代码（`quoteAt`）。没有本地价格文件，也没有后台同步——只在发布新版本时更新。
-
-| 价格表（provider id） | 币种 | 采集日期 | 模型与计费区间 |
-| --- | --- | --- | --- |
-| DeepSeek（`deepseek-official`、`deepseek-account`、`deepseek`） | CNY | 2026-09-10 | `deepseek-flash`、`deepseek-v4-pro`、`deepseek-chat`、`deepseek-reasoner`；峰谷时段，旧名 `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` 走别名 |
-| Moonshot / Kimi（`moonshotai`） | USD | 2026-10-27 | `kimi-k3.1-pro`、`kimi-k3.1-pro-highspeed`、`kimi-k3`、`kimi-k2.7-code`、`kimi-k2.7-code-highspeed`、`kimi-k2.6` |
-| Z.ai（`zai`） | USD | 2026-10-27 | `glm-5.3`、`glm-5.3-flash`、`glm-5.3-flashx`、`glm-5.2`、`glm-5.1`、`glm-5`、`glm-4.7`、`glm-4.7-flashx`、`glm-4.6`、`glm-4.6v`、`glm-4.5`、`glm-4.5-air` |
-| MiniMax 国际站（`minimax`） | USD | 2026-10-27 | `minimax-m3`、`minimax-m3.1-flash` |
-| MiniMax 国内站（`minimax-cn`） | CNY | 2026-10-27 | `minimax-m3`、`minimax-m3.1-flash` |
-| OpenRouter（`openrouter`） | USD | 2026-10-27 | `deepseek/deepseek-v4.1-flash-1017`（分时）、`deepseek/deepseek-v4.1-flash`、`claude-sonnet-5.5`、`gpt-6.1-sol`、`gemini-3.8-flash`、`grok-4.7`、`glm-4.6`、`minimax-m3.1-flash` |
-
-**计费区间**
-
-- **DeepSeek**——高峰价（`standard`）为周一至周五 09:00–12:00、14:00–18:00 北京时间，剔除中国法定节假日；其余时间（夜间、周末、节假日、调休上班日）为空闲价（`offPeak`）。`deepseek-chat` / `deepseek-reasoner` 两个区间同价，但照旧显示指示灯（悬停给出剩余时间）。
-- **OpenRouter**——`deepseek/deepseek-v4.1-flash-1017` 自带工作日 09:00–12:00 / 14:00–18:00 的窗口，**没有**中国法定节假日规则。
-- **其余模型**全天一价：只显示单价行，没有指示灯。
-
-> [!WARNING]
-> 中国法定节假日表（`lib/pricing.js` 的 `HOLIDAY_RANGES`）目前只覆盖 2026 年。国务院办公厅通常在前一年 11 月发布次年安排，届时更新该表、浏览器侧镜像表与 `HOLIDAY_TABLE_THROUGH_YEAR`。未更新前，节假日按普通工作日计价，宿主每天告警一次。
-
-**价格表的边界**
-
-- 每个模型只存一档价，所以**不是按时间**的分档没有建模：MiniMax M3 的输入长度分档与 priority 服务、GLM-5.1 的 ≥32K 输入档、OpenRouter 的多上游价差（表里记的是默认路由价）。卡片显示基础档。
-- 每张表只按**一个站点**维护，因为同一个模型 id 在不同站点价格不同：Moonshot / Kimi、Z.ai 取国际站美元价；MiniMax 分成 `minimax`（美元，`.io`）与 `minimax-cn`（人民币，`.cn`）。Key 在另一个站点时，数字不会与账单一致。
-- 比本插件版本更新的模型不估价，直到价格表更新——插件不按模型名猜价。
-- 经第三方网关（中转、自建端点、Workbuddy）访问的模型由网关计费。厂商接口反映的是**你自己在该厂商的账户**，这是另一件事：配了 DeepSeek Key 但当前模型跑在网关上时，卡片显示的是该网关的状态或原因，既不是你的 DeepSeek 余额，也不是网关在扣多少。
-
-**手动更新价格表**：改 `PRICE_TABLES`——给某个 provider id 加一块 `currency`、`asOf`，`models` 里每个官方模型 id 一条 `standard: { input, cacheRead, output }`（每百万 tokens）。有分时段计费的模型再加 `offPeak: { … }` 与 provider 级 `schedule`：`peakWindows` 标出贵的时段（区间内按 `standard`、区间外按 `offPeak`），`days: 'everyday' | 'weekdays'`，`offsetMinutes` 指定计时时区，只有套用中国法定节假日的地方才写 `holidays: true`；旧模型名放该 provider 的 `aliases`。表里没有的模型不计价。
-
-### 工作原理
-
-插件分宿主侧与浏览器侧，都是无构建步骤的普通 ESM。宿主侧注册四个本机路由：
-
-| 路由 | 方法 | 作用 |
-| --- | --- | --- |
-| `/api/deepseek-usage` | `GET`（`?lang=zh\|en`） | 当前模型提供商的读数、单价与计费区间 |
-| `/api/deepseek-usage/accounts` | `GET` | 插件页用的映射目标、未识别路由与 OAuth 令牌状态 |
-| `/api/deepseek-usage/token` | `POST` | 写入或清除 OAuth 令牌 |
-| `/api/deepseek-usage/holidays` | `GET` | 交给浏览器侧的法定节假日表 |
-
-- **宿主侧**（`lib/index.js`、`lib/accounts.js`、`lib/providers.js`、`lib/pricing.js`）每次请求从 `agentDefaultModel` 解析当前提供商——先精确 id，再查用户配置的映射——经凭据服务解析该提供商的密钥引用，请求对应接口（15 秒超时、64 KiB 响应上限），失败分类成一句简短可行动的话。`lib/providers.js` 是映射层：校验配置的别名，给出能力条目与候选凭据引用。读数缓存 10 秒并按「能力 + 端点 + 凭据」分桶、合并在途请求，多标签页或重复点击不会重复打上游。
-- **浏览器侧**（`lib/client.js`）把响应渲染进 `sidebar.footer.action`，并注册本插件详情页的配置区（`plugins.bundle.config`：提供商映射编辑器，以及其下方的 OAuth 令牌填写区）与编辑提供商映射的 `plugins.row.config` 配置页。界面自身不做计价逻辑：指示灯与单价都来自同一份响应。每 30 秒重新读一次，点击卡片或模型变化时立即刷新；宿主路由不可用时才用内置的节假日表兜底。
-- **只服务本机**：`Host` 必须是回环地址（或服务器绑定的地址），跨站浏览器请求与异源 `Origin` 一律拒绝，只接受文档声明的方法，令牌路由还要求 JSON 且有 body 上限。凭据从不下发到浏览器——任何响应都不带 Key、令牌或上游错误原文。同一台机器上的本地进程仍能读到这些路由，这是本地工具的固有边界。
-
-### 常见问题
-
-**卡片空白，显示的是原因而不是数字**
-
-- *未配置 `DEEPSEEK_API_KEY`*（或其它引用名）：在 DSH 设置（模型页）里配置后重启。
-- *DeepSeek 账号尚未登录*：`deepseek-account` 读的是 DSH 登录留下的 grant，在 DSH 里登录 DeepSeek 账号后卡片就会显示余额。
-- *Key 里含有 HTTP 头带不了的字符*：通常是粘贴时带进一个换行，重新复制并去掉换行。
-- *余额接口 HTTP n / 超时 / 无法连接 / 返回了无法解析的内容 / 没有返回余额*：点击卡片重试，检查网络与该提供商的状态页。
-- *账户当前不可用*：余额接口有响应，但 `is_available` 为 false。
-- *本插件不支持 `<提供商>`*：当前提供商没有可查的余额或用量接口（见上文）。
-- *尚未填写该提供商的 OAuth 令牌* / *OAuth 令牌已失效*：到插件页面粘贴或重新粘贴一个。
-
-把 `DEEPSEEK_BASE_URL` 指向第三方中转时，拿到的是该中转的响应，官方余额接口不再被调用——本插件只支持 DeepSeek 官方平台。这个覆盖只作用于 api-key 路由：`deepseek-account` 恒用官方源，因为账号 grant 只在那里有效。
-
-卡片不会原样显示上游的错误消息：传输层细节留在宿主日志里，卡片上只放一句简短、能行动的话。
+运行 `dsh --version` 查看你的 DSH 版本。不带版本号安装会自动取最新的兼容版本；最新版与你的 DSH 不匹配时，指定确切版本，例如 `@dougen/dsh-deepseek-usage@0.10.2`。
