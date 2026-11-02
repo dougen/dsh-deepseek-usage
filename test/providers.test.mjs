@@ -5,21 +5,49 @@ import assert from 'node:assert/strict';
 import { accountCapabilityOf, aliasableProviderIds, candidateRefsOf } from '../lib/accounts.js';
 import { createProviderResolver, normalizeAliases } from '../lib/providers.js';
 
-test('可映射集合只含凭据是 API Key 的 balance / usage 路由', () => {
+test('可映射集合含 balance / usage / OAuth 路由，排除账号登录与同账户路由', () => {
   const ids = aliasableProviderIds();
   assert.ok(ids.includes('deepseek-official'));
   assert.ok(ids.includes('opencode-go'));
   assert.ok(ids.includes('kimi-coding'));
   assert.ok(ids.includes('minimax-cn'));
-  // OAuth 类与账号登录路由不接受映射：它们的凭据不是 API Key。
-  assert.equal(ids.includes('anthropic'), false);
-  assert.equal(ids.includes('openai-codex'), false);
+  // OAuth 目标：凭据是订阅令牌，由插件页单独写入凭据服务。
+  assert.ok(ids.includes('anthropic'));
+  assert.ok(ids.includes('openai-codex'));
+  // 账号登录路由（grant）与同账户的 pi-ai DeepSeek 路由不作为目标。
   assert.equal(ids.includes('deepseek-account'), false);
+  assert.equal(ids.includes('deepseek'), false);
   assert.equal(ids.includes('google'), false);
   for (const id of ids) {
     const kind = accountCapabilityOf(id).kind;
-    assert.ok(kind === 'balance' || kind === 'usage', `${id} 不该出现在可映射集合里`);
+    assert.ok(kind !== 'none', `${id} 不该出现在可映射集合里`);
   }
+});
+
+test('映射到 OAuth 目标：不产生凭据引用，令牌由凭据服务提供', () => {
+  const { aliases, warnings } = normalizeAliases([
+    { provider: 'dsh-codex', capability: 'openai-codex', refs: ['SOME_REF'] },
+  ]);
+  assert.deepEqual(warnings, []);
+  const resolver = createProviderResolver(aliases);
+  const resolved = resolver.resolve('dsh-codex');
+  assert.equal(resolved.via, 'alias');
+  assert.equal(resolved.capabilityId, 'openai-codex');
+  assert.equal(resolved.entry.kind, 'oauth');
+  assert.deepEqual(resolved.refs, [], 'OAuth 目标不读 API Key 引用');
+  assert.deepEqual([...resolver.capabilityIds], ['openai-codex']);
+});
+
+test('可映射集合里同账户的 DeepSeek 路由只留一条', () => {
+  const ids = aliasableProviderIds();
+  assert.ok(ids.includes('deepseek-official'));
+  // `deepseek` 是 pi-ai 目录里读同一笔余额的另一条路由：仍按内置 id 识别，
+  // 但不再作为映射目标，免得下拉里出现两个同名同账户的选项。
+  assert.equal(ids.includes('deepseek'), false);
+  assert.equal(accountCapabilityOf('deepseek').kind, 'balance', '内置识别不受影响');
+  // 每个目标的名字唯一：再出现同账户的重复选项时，这条断言先失败。
+  const names = ids.map((id) => accountCapabilityOf(id).displayName);
+  assert.equal(new Set(names).size, names.length, `映射目标名字重复：${names.join(', ')}`);
 });
 
 test('归一化：trim、去重、丢弃非法项', () => {

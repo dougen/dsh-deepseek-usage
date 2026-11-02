@@ -131,6 +131,23 @@ function renderCard(Comp, runtime, props = { wide: true }) {
   return runtime.render(() => element.type(element.props));
 }
 
+/**
+ * 递归展开函数组件（含包裹层的子组件），统一在一次 runtime.render 里执行。
+ * 迷你 React 的 hook 槽位是全局游标，展开顺序固定，因此重渲染时各组件状态仍落在
+ * 同一批槽位上——足以覆盖「映射编辑器 + 令牌区」这种一个槽位里嵌两个组件的结构。
+ */
+function renderTree(runtime, root) {
+  return runtime.render(() => {
+    const expand = (node) => {
+      if (node === null || node === undefined || typeof node !== 'object') return node;
+      if (Array.isArray(node)) return node.map(expand);
+      if (typeof node.type === 'function') return expand(node.type(node.props));
+      return node.children ? { ...node, children: node.children.map(expand) } : node;
+    };
+    return expand(root);
+  });
+}
+
 function textOf(node) {
   if (node === null || node === undefined || node === false) return '';
   if (typeof node === 'string' || typeof node === 'number') return String(node);
@@ -680,85 +697,104 @@ test('折叠态下不可查且无错误时整块不渲染', async () => {
   assert.equal(renderCard(Comp, runtime, { wide: false }).out, null, '折叠态没有可显示内容时返回 null');
 });
 
-// ---- 插件页状态表 ---------------------------------------------------------
+// ---- 插件页：OAuth 令牌区 ------------------------------------------------
 
-/** 收集一处 props.style 里出现的颜色值。 */
-function colorOf(node) {
-  const style = node && node.props && node.props.style;
-  return style && typeof style === 'object' && typeof style.color === 'string' ? style.color : null;
+/** 插件页配置区（bundle.config）：映射编辑器 + 其下方的令牌区。 */
+function loadBundlePage(runtime, services = {}) {
+  const Slot = loadSlots(runtime, 'zh', services)['plugins.bundle.config'];
+  const render = () => renderTree(runtime, Slot({ t: (k) => k })).out;
+  return { Slot, render };
 }
 
-test('状态表：不支持的提供商显示"不适用"而非红色"查询失败"', async () => {
+const bundleForm = (value = { providerAliases: [] }) => ({
+  getSnapshot: () => ({ status: 'ready', value, revision: 1, writable: true }),
+  subscribe: () => () => {},
+  mutate: async () => true,
+});
+
+test('插件页：未检测到 OAuth 路由时不渲染令牌区', async () => {
   const runtime = makeRuntime();
-  const slots = loadSlots(runtime);
-  const Section = slots['plugins.detail.section'];
+  const { render } = loadBundlePage(runtime, { configForms: { get: () => bundleForm() } });
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ ok: true, aliasable: [{ id: 'opencode-go', displayName: 'OpenCode Go' }], unmapped: [], oauth: [] }),
+  });
+  render();
+  await flush();
+  const out = render();
+  assert.equal(nodesOf(out).filter((n) => n.type === 'textarea').length, 0);
+  assert.ok(!textOf(out).includes('token.title'));
+});
+
+test('插件页：令牌卡渲染在映射保存按钮之后', async () => {
+  const runtime = makeRuntime();
+  const { render } = loadBundlePage(runtime, { configForms: { get: () => bundleForm() } });
   globalThis.fetch = async () => ({
     ok: true,
     status: 200,
     json: async () => ({
       ok: true,
-      current: 'deepseek-official',
-      accounts: [
-        { id: 'deepseek-official', displayName: 'DeepSeek', kind: 'balance', status: 'ok', refs: [], token: null, balance: { isAvailable: true, total: 110, currency: 'CNY' }, usage: null, current: true, reason: null },
-        { id: 'moonshotai', displayName: 'Moonshot', kind: 'balance', status: 'error', refs: [], token: null, balance: null, usage: null, current: false, reason: null },
-        { id: 'google', displayName: 'Google', kind: 'none', status: 'error', refs: [], token: null, balance: null, usage: null, current: false, reason: 'cloudAuthOnly' },
+      aliasable: [{ id: 'opencode-go', displayName: 'OpenCode Go' }],
+      unmapped: [],
+      oauth: [
+        { id: 'anthropic', displayName: 'Claude Code', configured: false },
+        { id: 'openai-codex', displayName: 'OpenAI Codex', configured: true },
       ],
-      errors: [],
     }),
   });
-  const el = Section({ t: (k) => k, subject: { kind: 'bundle', pkg: { name: '@dougen/dsh-deepseek-usage' } } });
-  runtime.render(() => el.type(el.props));
+  render();
   await flush();
-  const { out } = runtime.render(() => el.type(el.props));
-
-  const statuses = [];
-  const walk = (node) => {
-    if (!node || typeof node !== 'object') return;
-    if (Array.isArray(node)) { node.forEach(walk); return; }
-    const text = (node.children ?? []).filter((c) => typeof c === 'string').join('');
-    if (text.startsWith('accounts.status.')) statuses.push({ text, color: colorOf(node) });
-    (node.children ?? []).forEach(walk);
-  };
-  walk(out);
-
-  const byText = Object.fromEntries(statuses.map((s) => [s.text, s.color]));
-  // "可查询"用与侧边栏指示灯、仪表盘弧相同的低饱和度绿色。
-  assert.equal(byText['accounts.status.ok'], 'color-mix(in srgb, var(--dsw-alias-state-success-primary, rgb(34,160,80)) 55%, #808080)');
-  // 真失败仍然标红：这是用户需要行动的信号。
-  assert.equal(byText['accounts.status.error'], 'var(--dsw-alias-state-error-primary, rgb(200,40,40))');
-  // 不支持的提供商：中性 tertiary 色，不是错误色。
-  assert.equal(byText['accounts.status.unsupported'], 'var(--dsw-alias-label-tertiary, rgba(0,0,0,.4))');
-  assert.ok(!Object.hasOwn(byText, 'accounts.status.error') || byText['accounts.status.unsupported'] !== byText['accounts.status.error']);
+  const out = render();
+  const nodes = nodesOf(out);
+  const save = nodes.findIndex((n) => n.type === 'button' && (n.children ?? []).join('') === 'alias.save');
+  const firstTextarea = nodes.findIndex((n) => n.type === 'textarea');
+  assert.ok(save >= 0 && firstTextarea > save, '令牌区必须在映射编辑器之后');
+  assert.equal(nodes.filter((n) => n.type === 'textarea').length, 2, '每个检测到的 OAuth 提供商一个令牌框');
+  assert.ok(textOf(out).includes('token.title'));
+  // Codex 多一个账号 ID 输入；Claude 没有。
+  const accountInputs = nodes.filter((n) => n.type === 'input' && n.props.placeholder === 'token.accountPlaceholder');
+  assert.equal(accountInputs.length, 1, '账号 ID 输入只对 openai-codex 出现');
 });
 
-test('状态表只出现在本插件的详情页', async () => {
+test('令牌卡：保存 POST /token，成功后刷新已填写状态', async () => {
   const runtime = makeRuntime();
-  const Section = loadSlots(runtime)['plugins.detail.section'];
-  const t = (k) => k;
+  const { render } = loadBundlePage(runtime, { configForms: { get: () => bundleForm() } });
+  const posts = [];
+  let configured = false;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith('/token')) {
+      const body = JSON.parse(init.body);
+      posts.push(body);
+      configured = body.token !== '';
+      return { ok: true, status: 200, json: async () => ({ ok: true, configured }) };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        aliasable: [],
+        unmapped: [],
+        oauth: [{ id: 'anthropic', displayName: 'Claude Code', configured }],
+      }),
+    };
+  };
+  render();
+  await flush();
+  let out = render();
+  assert.ok(textOf(out).includes('token.missing'));
 
-  // 别的 bundle：不渲染。`plugins.detail.section` 是所有详情页共用的 slot，
-  // 只判断 kind === 'bundle' 会让面板出现在每个插件页上。
-  assert.equal(
-    Section({ t, subject: { kind: 'bundle', pkg: { name: '@deepseek-ai/dsh-client-ui-cordis' } } }),
-    null,
-    '别的 bundle 的详情页不该出现本插件的面板',
-  );
-  // 行页面与官方插件页面同理。
-  assert.equal(
-    Section({ t, subject: { kind: 'row', pkg: { name: '@dougen/dsh-deepseek-usage' }, row: { rowId: 'x' } } }),
-    null,
-    '行页面不是 bundle 页面',
-  );
-  assert.equal(Section({ t, subject: { kind: 'item', id: 'agent-loop' } }), null, '官方插件页面不该出现');
-  // subject 缺失也不能崩。
-  assert.equal(Section({ t }), null);
-
-  // 本插件的 bundle 页面：渲染一块 section（注册返回的是组件元素，
-  // 真正的 <section> 在组件返回值里）。
-  const own = Section({ t, subject: { kind: 'bundle', pkg: { name: '@dougen/dsh-deepseek-usage' } } });
-  assert.notEqual(own, null);
-  const rendered = runtime.render(() => own.type(own.props));
-  assert.equal(rendered.out.type, 'section');
+  nodesOf(out).find((n) => n.type === 'textarea').props.onChange({ target: { value: 'sk-ant-oat01-test' } });
+  out = render();
+  const save = nodesOf(out).find((n) => n.type === 'button' && (n.children ?? []).join('') === 'token.save');
+  assert.ok(save);
+  save.props.onClick();
+  await flush();
+  out = render();
+  assert.deepEqual(posts, [{ provider: 'anthropic', token: 'sk-ant-oat01-test' }]);
+  assert.ok(textOf(out).includes('token.saved'));
+  assert.ok(textOf(out).includes('token.configured'), '保存成功后状态标签应刷新');
 });
 
 test('价格悬浮说明：整行命中，写清单位与三个档位，分两行', async () => {
@@ -921,11 +957,9 @@ test('映射设置页：回显已有映射，删除后保存写回规范化配�
     status: 200,
     json: async () => ({
       ok: true,
-      current: 'dsh-opencode-go',
-      accounts: [],
       aliasable: [{ id: 'opencode-go', displayName: 'OpenCode Go' }],
       unmapped: [{ id: 'other-plugin', displayName: 'Other Plugin' }],
-      errors: [],
+      oauth: [],
     }),
   });
 
@@ -977,11 +1011,9 @@ test('映射设置页：检测到的未识别路由只预填 id，未选目标�
     status: 200,
     json: async () => ({
       ok: true,
-      current: 'dsh-opencode-go',
-      accounts: [],
       aliasable: [{ id: 'opencode-go', displayName: 'OpenCode Go' }],
       unmapped: [{ id: 'other-plugin', displayName: 'Other Plugin' }],
-      errors: [],
+      oauth: [],
     }),
   });
 
@@ -1023,6 +1055,56 @@ test('映射设置页：检测到的未识别路由只预填 id，未选目标�
 });
 
 
+test('映射设置页：OAuth 目标隐藏凭据引用，保存时 refs 为空', async () => {
+  const runtime = makeRuntime();
+  const Slot = loadSlots(runtime)['plugins.row.config'];
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      ok: true,
+      aliasable: [
+        { id: 'opencode-go', displayName: 'OpenCode Go', kind: 'usage' },
+        { id: 'openai-codex', displayName: 'OpenAI Codex', kind: 'oauth' },
+      ],
+      unmapped: [],
+      oauth: [],
+    }),
+  });
+
+  const writes = [];
+  const form = {
+    state: {
+      status: 'ready',
+      value: { providerAliases: [{ provider: 'dsh-codex', capability: 'openai-codex', refs: ['STALE'] }] },
+      revision: 1,
+      writable: true,
+    },
+    mutate: async (ops) => { writes.push(ops); return true; },
+  };
+  const t = (k) => k;
+  const render = () => runtime.render(() => {
+    let node = Slot({ view: 'page', form, t });
+    while (node && typeof node.type === 'function') node = node.type(node.props);
+    return node;
+  }).out;
+
+  render();
+  await flush();
+  const out = render();
+  assert.equal(nodesOf(out).filter((n) => n.type === 'input').length, 1, 'OAuth 目标只剩 provider id 输入框');
+  assert.ok(textOf(out).includes('alias.oauthHint'));
+
+  nodesOf(out).filter((n) => n.type === 'button').find((b) => b.children.includes('alias.save')).props.onClick();
+  await flush();
+  assert.deepEqual(writes, [[{
+    op: 'set',
+    path: ['providerAliases'],
+    value: [{ provider: 'dsh-codex', capability: 'openai-codex', refs: [] }],
+  }]]);
+});
+
 test('插件页：bundle 配置区从 configForms 取表单并渲染映射编辑器', async () => {
   const runtime = makeRuntime();
 
@@ -1031,11 +1113,9 @@ test('插件页：bundle 配置区从 configForms 取表单并渲染映射编辑
     status: 200,
     json: async () => ({
       ok: true,
-      current: 'dsh-opencode-go',
-      accounts: [],
       aliasable: [{ id: 'opencode-go', displayName: 'OpenCode Go' }],
       unmapped: [],
-      errors: [],
+      oauth: [],
     }),
   });
 
@@ -1057,11 +1137,7 @@ test('插件页：bundle 配置区从 configForms 取表单并渲染映射编辑
   const Slot = loadSlots(runtime, 'zh', services)['plugins.bundle.config'];
   assert.equal(typeof Slot, 'function', 'bundle 配置槽位必须注册');
 
-  const render = () => runtime.render(() => {
-    let node = Slot({ t: (k) => k });
-    while (node && typeof node.type === 'function') node = node.type(node.props);
-    return node;
-  }).out;
+  const render = () => renderTree(runtime, Slot({ t: (k) => k })).out;
 
   render();
   await flush();
