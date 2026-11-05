@@ -18,9 +18,11 @@
   },
   "files": [
     "lib",
+    "locale",
     "icon.svg",
     "cordis.patch.yml",
     "README.md",
+    "README.zh.md",
     "screenshot.png",
     "screenshot2.png",
     "screenshots.json"
@@ -28,6 +30,7 @@
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {

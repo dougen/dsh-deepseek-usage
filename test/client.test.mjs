@@ -298,3 +298,16 @@ test('映射设置页：配置值 ↔ 草稿行，引用文本按 token 解析',
 function nextChangeOf(days) {
   return I.nextChange(at('2026-10-22T11:00:00+08:00'), days);
 }
+
+test('DSH 语言 → 插件语言：中文前缀用中文，其它一律英文', () => {
+  assert.equal(I.uiLang('zh'), 'zh');
+  assert.equal(I.uiLang('zh-CN'), 'zh');
+  assert.equal(I.uiLang('zh-Hans'), 'zh');
+  assert.equal(I.uiLang('ZH'), 'zh');
+  assert.equal(I.uiLang('en'), 'en');
+  assert.equal(I.uiLang('en-US'), 'en');
+  assert.equal(I.uiLang('ja'), 'en');
+  assert.equal(I.uiLang('de'), 'en');
+  assert.equal(I.uiLang(''), 'en');
+  assert.equal(I.uiLang(undefined), 'en');
+});

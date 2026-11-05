@@ -104,13 +104,15 @@ function loadSlots(runtime, lang = 'zh', services = {}) {
   new Function('window', 'require', source)(win, (id) => (id === 'react' ? runtime.react : {}));
   const mod = win.__def.factory((id) => (id === 'react' ? runtime.react : {}));
   const registered = {};
+  // 可变语言状态：测试改 localeState.active 后重渲染即可模拟 DSH 切换语言。
+  const localeState = { active: lang };
   const ctx = {
     get: (name) => services[name],
     locale: {
       subscribe: () => () => {},
-      getSnapshot: () => ({ active: lang, locales: [], revision: 0 }),
-      // 绑定命名空间后的翻译函数：返回原 key 表示"没这份译文"，组件会回退中文词典。
-      bind: () => (k) => (lang === 'en' ? EN_DICT[k] ?? k : k),
+      getSnapshot: () => ({ active: localeState.active, locales: [], revision: 0 }),
+      // 与 DSH 一致：中文直接给 key（组件回退中文词典），其它语言回退英文词典。
+      bind: () => (k) => (localeState.active === 'zh' ? k : EN_DICT[k] ?? k),
       register: () => {},
     },
     remote: { $on: () => () => {} },
@@ -122,6 +124,7 @@ function loadSlots(runtime, lang = 'zh', services = {}) {
     },
   };
   mod.apply(ctx);
+  Object.defineProperty(registered, 'localeState', { value: localeState, enumerable: false });
   return registered;
 }
 
@@ -1155,4 +1158,50 @@ test('插件页：bundle 配置区从 configForms 取表单并渲染映射编辑
     path: ['providerAliases'],
     value: [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refs: ['OPENCODE_API_KEY'] }],
   }]]);
+});
+
+// ---- 语言设置：中文→中文，其它语言→英文 ------------------------------------
+
+test('非中文语言（ja）按英文渲染，并向宿主请求 en', async () => {
+  const { pending } = makePendingFetch();
+  const runtime = makeRuntime();
+  const Comp = loadClient(runtime, 'ja');
+  renderCard(Comp, runtime);
+
+  const usage = pending.filter((p) => p.url.startsWith('/api/deepseek-usage?'));
+  assert.equal(usage.length, 1, '挂载后应发出一次余额请求');
+  assert.ok(usage[0].url.endsWith('?lang=en'), `非中文语言应请求 en，实际 ${usage[0].url}`);
+
+  usage[0].resolve(stateResponse(false, null));
+  await flush();
+
+  const labels = nodesOf(renderCard(Comp, runtime).out)
+    .map((n) => n.props && n.props['aria-label'])
+    .filter(Boolean);
+  assert.ok(labels.includes('Account usage, click to refresh'), `应显示英文文案，实际 ${JSON.stringify(labels)}`);
+});
+
+test('DSH 语言切换后立即按新语言重取一次', async () => {
+  const { pending } = makePendingFetch();
+  const runtime = makeRuntime();
+  const slots = loadSlots(runtime, 'zh');
+  const Comp = slots['sidebar.footer.action'];
+  const usage = () => pending.filter((p) => p.url.startsWith('/api/deepseek-usage?'));
+  renderCard(Comp, runtime);
+
+  assert.equal(usage()[0].url, '/api/deepseek-usage?lang=zh');
+  usage()[0].resolve(stateResponse(false, null));
+  await flush();
+
+  slots.localeState.active = 'ja';
+  renderCard(Comp, runtime);
+  assert.equal(usage().length, 2, '语言变化后应立即重取一次，而不是等下一次心跳');
+  assert.ok(usage()[1].url.endsWith('?lang=en'), `切换后应请求 en，实际 ${usage()[1].url}`);
+
+  usage()[1].resolve(stateResponse(false, null));
+  await flush();
+  const labels = nodesOf(renderCard(Comp, runtime).out)
+    .map((n) => n.props && n.props['aria-label'])
+    .filter(Boolean);
+  assert.ok(labels.includes('Account usage, click to refresh'), `切换后应显示英文文案，实际 ${JSON.stringify(labels)}`);
 });

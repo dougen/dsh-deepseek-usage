@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "DeepSeek 用量",
+    "description": "在 DSH 侧边栏显示当前模型所用账户的余额或订阅余量、该模型的单价，以及峰谷时段指示灯。",
+    "detail": "README.zh.md"
+  }
+}

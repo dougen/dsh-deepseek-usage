@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "DeepSeek Usage",
+    "description": "Shows the balance or subscription quota behind the active model, that model's current unit prices, and the peak / off-peak indicator in the DSH sidebar.",
+    "detail": "README.md"
+  }
+}

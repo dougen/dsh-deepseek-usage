@@ -1047,3 +1047,20 @@ test('volatile 配置就地更新后，下一次请求立即使用新映射（�
   assert.equal(after.body.provider.via, 'alias');
   assert.deepEqual(after.body.errors, []);
 });
+
+test('lang 参数：只有中文标签用中文，其它语言与缺省都用英文', async () => {
+  const cases = [
+    ['/api/deepseek-usage?lang=zh', '未配置 DEEPSEEK_API_KEY'],
+    ['/api/deepseek-usage?lang=zh-CN', '未配置 DEEPSEEK_API_KEY'],
+    ['/api/deepseek-usage?lang=en', 'DEEPSEEK_API_KEY is not configured'],
+    ['/api/deepseek-usage?lang=ja', 'DEEPSEEK_API_KEY is not configured'],
+    ['/api/deepseek-usage', 'DEEPSEEK_API_KEY is not configured'],
+  ];
+  for (const [url, expected] of cases) {
+    const { ctx, routes } = makeCtx({ key: null });
+    apply(ctx);
+    const res = await call(routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }, url));
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.errors, [expected], url);
+  }
+});
