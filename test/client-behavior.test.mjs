@@ -106,6 +106,8 @@ function loadSlots(runtime, lang = 'zh', services = {}) {
   const registered = {};
   // 可变语言状态：测试改 localeState.active 后重渲染即可模拟 DSH 切换语言。
   const localeState = { active: lang };
+  // `settings.section` 的注册选项（id / order / label thunk），供设置项用例断言。
+  let sectionOptions;
   const ctx = {
     get: (name) => services[name],
     locale: {
@@ -120,11 +122,15 @@ function loadSlots(runtime, lang = 'zh', services = {}) {
     slots: {
       // 按槽位名分派：本插件注册的槽位各自有测试取用。
       inject: (_n, fn) => fn(),
-      register: (meta, comp) => { registered[meta.name] = comp; },
+      register: (meta, comp) => {
+        registered[meta.name] = comp;
+        if (meta.name === 'settings.section') sectionOptions = meta;
+      },
     },
   };
   mod.apply(ctx);
   Object.defineProperty(registered, 'localeState', { value: localeState, enumerable: false });
+  Object.defineProperty(registered, 'sectionOptions', { value: () => sectionOptions, enumerable: false });
   return registered;
 }
 
@@ -700,24 +706,38 @@ test('折叠态下不可查且无错误时整块不渲染', async () => {
   assert.equal(renderCard(Comp, runtime, { wide: false }).out, null, '折叠态没有可显示内容时返回 null');
 });
 
-// ---- 插件页：OAuth 令牌区 ------------------------------------------------
+// ---- 设置页：DeepSeek 用量（映射 + OAuth 令牌）----------------------------
 
-/** 插件页配置区（bundle.config）：映射编辑器 + 其下方的令牌区。 */
-function loadBundlePage(runtime, services = {}) {
-  const Slot = loadSlots(runtime, 'zh', services)['plugins.bundle.config'];
+/** 设置面板「DeepSeek 用量」页（`settings.section`）：映射编辑器 + 其下方的令牌区。 */
+function loadSettingsPage(runtime, services = {}) {
+  const Slot = loadSlots(runtime, 'zh', services)['settings.section'];
   const render = () => renderTree(runtime, Slot({ t: (k) => k })).out;
   return { Slot, render };
 }
 
-const bundleForm = (value = { providerAliases: [] }) => ({
+const configForm = (value = { providerAliases: [] }) => ({
   getSnapshot: () => ({ status: 'ready', value, revision: 1, writable: true }),
   subscribe: () => () => {},
   mutate: async () => true,
 });
 
-test('插件页：未检测到 OAuth 路由时不渲染令牌区', async () => {
+test('设置面板：注册 DeepSeek 用量子项，导航标题随语言变化', () => {
   const runtime = makeRuntime();
-  const { render } = loadBundlePage(runtime, { configForms: { get: () => bundleForm() } });
+  const slots = loadSlots(runtime, 'zh');
+  assert.equal(typeof slots['settings.section'], 'function', '设置项必须注册');
+  const options = slots.sectionOptions();
+  assert.equal(options.id, 'deepseek-usage');
+  assert.equal(options.order, 16);
+  assert.equal(options.label(), 'DeepSeek 用量');
+  slots.localeState.active = 'ja';
+  assert.equal(options.label(), 'DeepSeek Usage', '非中文语言应显示英文标题');
+  assert.equal(slots['plugins.bundle.config'], undefined, '插件详情页的配置区应已移除');
+  assert.equal(slots['plugins.row.config'], undefined, '插件行的配置页应已移除');
+});
+
+test('设置页：未检测到 OAuth 路由时不渲染令牌区', async () => {
+  const runtime = makeRuntime();
+  const { render } = loadSettingsPage(runtime, { configForms: { get: () => configForm() } });
   globalThis.fetch = async () => ({
     ok: true,
     status: 200,
@@ -726,13 +746,14 @@ test('插件页：未检测到 OAuth 路由时不渲染令牌区', async () => {
   render();
   await flush();
   const out = render();
+  assert.ok(textOf(out).includes('settings.title'), '设置页应有自己的标题');
   assert.equal(nodesOf(out).filter((n) => n.type === 'textarea').length, 0);
   assert.ok(!textOf(out).includes('token.title'));
 });
 
-test('插件页：令牌卡渲染在映射保存按钮之后', async () => {
+test('设置页：令牌卡渲染在映射保存按钮之后', async () => {
   const runtime = makeRuntime();
-  const { render } = loadBundlePage(runtime, { configForms: { get: () => bundleForm() } });
+  const { render } = loadSettingsPage(runtime, { configForms: { get: () => configForm() } });
   globalThis.fetch = async () => ({
     ok: true,
     status: 200,
@@ -760,9 +781,9 @@ test('插件页：令牌卡渲染在映射保存按钮之后', async () => {
   assert.equal(accountInputs.length, 1, '账号 ID 输入只对 openai-codex 出现');
 });
 
-test('令牌卡：保存 POST /token，成功后刷新已填写状态', async () => {
+test('设置页：令牌卡保存 POST /token，成功后刷新已填写状态', async () => {
   const runtime = makeRuntime();
-  const { render } = loadBundlePage(runtime, { configForms: { get: () => bundleForm() } });
+  const { render } = loadSettingsPage(runtime, { configForms: { get: () => configForm() } });
   const posts = [];
   let configured = false;
   globalThis.fetch = async (url, init) => {
@@ -948,12 +969,10 @@ test('旧宿主的响应（没有 tier.window）：指示灯与倒计时照旧�
 });
 
 
-// ---- provider 映射设置页 ------------------------------------------------
+// ---- 设置页：provider 映射 ------------------------------------------------
 
 test('映射设置页：回显已有映射，删除后保存写回规范化配置', async () => {
   const runtime = makeRuntime();
-  const Slot = loadSlots(runtime)['plugins.row.config'];
-  assert.equal(typeof Slot, 'function', '插件行配置槽位必须注册');
 
   globalThis.fetch = async () => ({
     ok: true,
@@ -967,22 +986,24 @@ test('映射设置页：回显已有映射，删除后保存写回规范化配�
   });
 
   const writes = [];
-  const form = {
-    state: {
-      status: 'ready',
-      value: { providerAliases: [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refs: ['OPENCODE_API_KEY'] }] },
-      revision: 3,
-      writable: true,
-    },
-    mutate: async (ops) => { writes.push(ops); return true; },
+  const snapshot = {
+    status: 'ready',
+    value: { providerAliases: [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refs: ['OPENCODE_API_KEY'] }] },
+    revision: 3,
+    writable: true,
   };
-  const t = (k) => k;
-  // 槽位入口只是薄包装：逐层调用函数组件，直到拿到真正的元素树。
-  const render = () => runtime.render(() => {
-    let node = Slot({ view: 'page', form, t });
-    while (node && typeof node.type === 'function') node = node.type(node.props);
-    return node;
-  }).out;
+  const services = {
+    configForms: {
+      get: () => ({
+        getSnapshot: () => snapshot,
+        subscribe: () => () => {},
+        mutate: async (ops) => { writes.push(ops); return true; },
+      }),
+    },
+  };
+  const Slot = loadSlots(runtime, 'zh', services)['settings.section'];
+  assert.equal(typeof Slot, 'function', '设置项必须注册');
+  const render = () => renderTree(runtime, Slot({ t: (k) => k })).out;
 
   render();
   await flush();
@@ -1007,7 +1028,6 @@ test('映射设置页：回显已有映射，删除后保存写回规范化配�
 
 test('映射设置页：检测到的未识别路由只预填 id，未选目标不允许保存', async () => {
   const runtime = makeRuntime();
-  const Slot = loadSlots(runtime)['plugins.row.config'];
 
   globalThis.fetch = async () => ({
     ok: true,
@@ -1021,17 +1041,18 @@ test('映射设置页：检测到的未识别路由只预填 id，未选目标�
   });
 
   const writes = [];
-  const form = {
-    state: { status: 'ready', value: { providerAliases: [] }, revision: 1, writable: true },
-    mutate: async (ops) => { writes.push(ops); return true; },
+  const snapshot = { status: 'ready', value: { providerAliases: [] }, revision: 1, writable: true };
+  const services = {
+    configForms: {
+      get: () => ({
+        getSnapshot: () => snapshot,
+        subscribe: () => () => {},
+        mutate: async (ops) => { writes.push(ops); return true; },
+      }),
+    },
   };
-  const t = (k) => k;
-  // 槽位入口只是薄包装：逐层调用函数组件，直到拿到真正的元素树。
-  const render = () => runtime.render(() => {
-    let node = Slot({ view: 'page', form, t });
-    while (node && typeof node.type === 'function') node = node.type(node.props);
-    return node;
-  }).out;
+  const Slot = loadSlots(runtime, 'zh', services)['settings.section'];
+  const render = () => renderTree(runtime, Slot({ t: (k) => k })).out;
 
   render();
   await flush();
@@ -1060,7 +1081,6 @@ test('映射设置页：检测到的未识别路由只预填 id，未选目标�
 
 test('映射设置页：OAuth 目标隐藏凭据引用，保存时 refs 为空', async () => {
   const runtime = makeRuntime();
-  const Slot = loadSlots(runtime)['plugins.row.config'];
 
   globalThis.fetch = async () => ({
     ok: true,
@@ -1077,21 +1097,23 @@ test('映射设置页：OAuth 目标隐藏凭据引用，保存时 refs 为空',
   });
 
   const writes = [];
-  const form = {
-    state: {
-      status: 'ready',
-      value: { providerAliases: [{ provider: 'dsh-codex', capability: 'openai-codex', refs: ['STALE'] }] },
-      revision: 1,
-      writable: true,
-    },
-    mutate: async (ops) => { writes.push(ops); return true; },
+  const snapshot = {
+    status: 'ready',
+    value: { providerAliases: [{ provider: 'dsh-codex', capability: 'openai-codex', refs: ['STALE'] }] },
+    revision: 1,
+    writable: true,
   };
-  const t = (k) => k;
-  const render = () => runtime.render(() => {
-    let node = Slot({ view: 'page', form, t });
-    while (node && typeof node.type === 'function') node = node.type(node.props);
-    return node;
-  }).out;
+  const services = {
+    configForms: {
+      get: () => ({
+        getSnapshot: () => snapshot,
+        subscribe: () => () => {},
+        mutate: async (ops) => { writes.push(ops); return true; },
+      }),
+    },
+  };
+  const Slot = loadSlots(runtime, 'zh', services)['settings.section'];
+  const render = () => renderTree(runtime, Slot({ t: (k) => k })).out;
 
   render();
   await flush();
@@ -1108,7 +1130,7 @@ test('映射设置页：OAuth 目标隐藏凭据引用，保存时 refs 为空',
   }]]);
 });
 
-test('插件页：bundle 配置区从 configForms 取表单并渲染映射编辑器', async () => {
+test('设置页：从 configForms 取表单并渲染映射编辑器', async () => {
   const runtime = makeRuntime();
 
   globalThis.fetch = async () => ({
@@ -1137,8 +1159,8 @@ test('插件页：bundle 配置区从 configForms 取表单并渲染映射编辑
   const services = {
     configForms: { get: (id) => (id === 'deepseek-usage' ? controller : undefined) },
   };
-  const Slot = loadSlots(runtime, 'zh', services)['plugins.bundle.config'];
-  assert.equal(typeof Slot, 'function', 'bundle 配置槽位必须注册');
+  const Slot = loadSlots(runtime, 'zh', services)['settings.section'];
+  assert.equal(typeof Slot, 'function', '设置项必须注册');
 
   const render = () => renderTree(runtime, Slot({ t: (k) => k })).out;
 
@@ -1147,7 +1169,7 @@ test('插件页：bundle 配置区从 configForms 取表单并渲染映射编辑
   const out = render();
 
   const inputs = nodesOf(out).filter((n) => n.type === 'input');
-  assert.equal(inputs.length, 2, '映射编辑器应在插件页直接渲染');
+  assert.equal(inputs.length, 2, '映射编辑器应在设置页直接渲染');
   assert.equal(inputs[0].props.value, 'dsh-opencode-go');
   assert.equal(inputs[1].props.value, 'OPENCODE_API_KEY');
 

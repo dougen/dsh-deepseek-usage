@@ -41,12 +41,12 @@ DSH lets you switch between many model providers, but each provider hides its ac
 dsh plugin --profile web add @dougen/dsh-deepseek-usage
 ```
 
-**Step 3 — restart `dsh web`** and open the URL it prints. The card sits at the bottom of the sidebar, below the Cordis panel button; click it to refresh right away.
+**Step 3 — restart `dsh web`** and open the URL it prints. The card sits at the bottom of the sidebar, below the Cordis panel button; click it to refresh right away. Provider mappings and subscription tokens are configured in **Settings → DeepSeek Usage**.
 
 <details>
 <summary>Using a Claude Code / OpenAI Codex subscription (OAuth)</summary>
 
-An API key cannot read these subscriptions — they share an OAuth token instead. When DSH detects Claude Code or OpenAI Codex (or a provider mapping targets one of them), a token field appears on the plugin's own page (**Plugins → @dougen/dsh-deepseek-usage**), under the provider mappings. Paste the token there and the sidebar card starts reporting that subscription's remaining quota:
+An API key cannot read these subscriptions — they share an OAuth token instead. When DSH detects Claude Code or OpenAI Codex (or a provider mapping targets one of them), a token field appears in **Settings → DeepSeek Usage**, under the provider mappings. Paste the token there and the sidebar card starts reporting that subscription's remaining quota:
 
 - **Claude Code** — on a machine signed in to Claude Code, copy `claudeAiOauth.accessToken` from `~/.claude/.credentials.json` (on macOS: the `Claude Code-credentials` keychain item). A token minted by `claude setup-token` also works.
 - **OpenAI Codex** — copy `tokens.access_token` from `~/.codex/auth.json` into the token field, and `tokens.account_id` into the account ID field.

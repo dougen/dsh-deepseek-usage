@@ -41,12 +41,12 @@ DSH 可以切换很多家模型提供商，但每家的账户状况藏在不同�
 dsh plugin --profile web add @dougen/dsh-deepseek-usage
 ```
 
-**第 3 步——重启 `dsh web`**，打开它打印的地址。卡片位于侧边栏底部、Cordis 面板按钮下方；点击卡片可立即刷新。
+**第 3 步——重启 `dsh web`**，打开它打印的地址。卡片位于侧边栏底部、Cordis 面板按钮下方；点击卡片可立即刷新。提供商映射与订阅令牌在**设置 → DeepSeek 用量**里配置。
 
 <details>
 <summary>使用 Claude Code / OpenAI Codex 订阅（OAuth）</summary>
 
-API Key 读不到这两种订阅——它们走 OAuth 令牌。当 DSH 检测到 Claude Code 或 OpenAI Codex（或有映射目标指向其中之一），插件详情页（**Plugins → @dougen/dsh-deepseek-usage**）的提供商映射下方会出现令牌填写框。把令牌粘贴进去，侧边栏卡片即可开始显示该订阅的余量：
+API Key 读不到这两种订阅——它们走 OAuth 令牌。当 DSH 检测到 Claude Code 或 OpenAI Codex（或有映射目标指向其中之一），**设置 → DeepSeek 用量** 的提供商映射下方会出现令牌填写框。把令牌粘贴进去，侧边栏卡片即可开始显示该订阅的余量：
 
 - **Claude Code**——在已登录 Claude Code 的机器上，从 `~/.claude/.credentials.json` 复制 `claudeAiOauth.accessToken`（macOS 在钥匙串项 `Claude Code-credentials` 里）。`claude setup-token` 产生的令牌也能用。
 - **OpenAI Codex**——从 `~/.codex/auth.json` 复制 `tokens.access_token` 填进令牌框，`tokens.account_id` 填进账号 ID 框。
