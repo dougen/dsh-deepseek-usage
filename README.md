@@ -26,11 +26,6 @@ DSH lets you switch between many model providers, but each provider hides its ac
   - *Subscription providers* (Kimi For Coding, OpenCode, MiniMax, Claude Code, OpenAI Codex) publish no balance, only usage windows. The card draws one gauge per window — 5-hour, weekly, monthly, whatever the endpoint returns — and shows how much of each quota remains, turning red once 80% is used.
   - The card always follows the selected model, so switching provider switches the reading; no per-provider setup beyond the credential.
 - **Unit prices of the current model.** The card lists input, input-cache and output prices for the billing period in effect right now, in the provider's own currency. When a provider bills by time of day — DeepSeek's official peak / off-peak schedule (Mon–Fri 09:00–12:00 and 14:00–18:00 Beijing time is peak, evenings, weekends and holidays are off-peak) or OpenRouter's time-of-day pricing — an orange / green dot marks which window is active, and hovering it shows the time left until the next switch.
-- **Reliable numbers.** It refreshes every 30 seconds, immediately on click and when the model changes. Until the first answer arrives it shows a placeholder (`—`) rather than a guess, and a model the price table does not cover gets no price at all. The interface follows the DSH language setting — Chinese when DSH is in Chinese, English for every other language — and the light / dark theme. The plugin's name and description in plugin lists, and its detail page, follow the same rule.
-
-> [!NOTE]
-> GitHub Copilot, Google, Amazon Bedrock, Azure and other credential kinds this plugin deliberately does not handle will get a short reason in the card instead of a number.
-
 ## Installation and usage
 
 **Step 1 — configure the provider's credential.** The plugin queries each provider with the key you already use for that provider: fill it on the **Models page in DSH**, or export it as an environment variable (`DEEPSEEK_API_KEY`, `MOONSHOTAI_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `KIMI_CODING_API_KEY`, `OPENCODE_API_KEY`, `MINIMAX_API_KEY`, …). The `deepseek-account` route is the exception: it needs no key — sign in to DeepSeek inside DSH and the card reads that account grant.
