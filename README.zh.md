@@ -41,7 +41,7 @@ DSH 可以切换很多家模型提供商，但每家的账户状况藏在不同�
 dsh plugin --profile web add @dougen/dsh-deepseek-usage
 ```
 
-**第 3 步——重启 `dsh web`**，打开它打印的地址。卡片位于侧边栏底部、Cordis 面板按钮下方；点击卡片可立即刷新。提供商映射与订阅令牌在**设置 → DeepSeek 用量**里配置。
+**第 3 步——重启 `dsh web`**，打开它打印的地址。卡片位于侧边栏底部、Cordis 面板按钮下方；点击卡片可立即刷新。提供商映射与订阅令牌在**设置 → DeepSeek 用量**里配置；当前模型背后的路由不被支持时，卡片上会给出「去映射」按钮，点击直接打开这一页。
 
 <details>
 <summary>使用 Claude Code / OpenAI Codex 订阅（OAuth）</summary>

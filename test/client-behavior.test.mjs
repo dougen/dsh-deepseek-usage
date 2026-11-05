@@ -94,8 +94,8 @@ const EN_DICT = {
 };
 
 /** 载入 client.js 并拿到注册进 sidebar.footer.action 槽位的组件。lang 决定界面语言。 */
-function loadClient(runtime, lang = 'zh') {
-  return loadSlots(runtime, lang)['sidebar.footer.action'];
+function loadClient(runtime, lang = 'zh', services = {}) {
+  return loadSlots(runtime, lang, services)['sidebar.footer.action'];
 }
 
 /** 载入 client.js 并返回按槽位名索引的注册组件表。services 模拟 ctx.get(name)。 */
@@ -126,6 +126,8 @@ function loadSlots(runtime, lang = 'zh', services = {}) {
         registered[meta.name] = comp;
         if (meta.name === 'settings.section') sectionOptions = meta;
       },
+      // 槽位账本：测试通过 services.slotsEntries 伪造 sidebar.settings 的注册项。
+      entries: (name) => (services.slotsEntries ? services.slotsEntries(name) : []),
     },
   };
   mod.apply(ctx);
@@ -680,6 +682,60 @@ test('不可查的 provider：卡片文字不是错误色', async () => {
   const ERR = 'var(--dsw-alias-state-error-primary, rgb(200,40,40))';
   assert.notEqual(reasonColor, ERR, `不可查的提供商不该用错误色，实际 ${reasonColor}`);
   assert.equal(reasonColor, 'var(--dsw-alias-label-secondary, rgba(0,0,0,.55))');
+});
+
+/** 伪造设置外壳：`sidebar.settings` 注册项共享的 store，记录 openSection 的分区 id。 */
+function settingsShellServices(opened) {
+  const shell = { actions: { openSection: (id) => { opened.push(id); } } };
+  return {
+    // 真实槽位 ledger 把 store 句柄放在 entry.store 上（options 是渲染侧擦除过的空壳）。
+    slotsEntries: (name) => (name === 'sidebar.settings'
+      ? [{ store: { create: () => shell } }]
+      : []),
+  };
+}
+
+test('不可查的 provider：卡片给出「去映射」，点击直接打开设置页', async () => {
+  const opened = [];
+  const { usage } = makePendingFetch();
+  const runtime = makeRuntime();
+  const Comp = loadClient(runtime, 'zh', settingsShellServices(opened));
+  renderCard(Comp, runtime);
+  usage()[0].resolve(unsupportedResponse());
+  await flush();
+
+  const out = renderCard(Comp, runtime).out;
+  const button = nodesOf(out).find((n) => n.type === 'button' && (n.children ?? []).join('') === '去映射');
+  assert.ok(button, `不支持时应有「去映射」按钮，实际 ${textOf(out)}`);
+  button.props.onClick({ stopPropagation() {} });
+  assert.deepEqual(opened, ['deepseek-usage'], '应跳到 DeepSeek 用量设置分区');
+});
+
+test('不可查的 provider：没有设置外壳时不显示「去映射」', async () => {
+  const { usage } = makePendingFetch();
+  const runtime = makeRuntime();
+  const Comp = loadClient(runtime);
+  renderCard(Comp, runtime);
+  usage()[0].resolve(unsupportedResponse());
+  await flush();
+
+  const out = renderCard(Comp, runtime).out;
+  assert.ok(!nodesOf(out).some((n) => n.type === 'button'), '没有设置外壳时不应出现按钮');
+  assert.ok(textOf(out).includes('当前插件不支持 Workbuddy'), '原因文案照旧显示');
+});
+
+test('不可查的 provider：英文界面按钮文案为 Set up mapping', async () => {
+  const opened = [];
+  const { usage } = makePendingFetch();
+  const runtime = makeRuntime();
+  const Comp = loadClient(runtime, 'en', settingsShellServices(opened));
+  renderCard(Comp, runtime);
+  usage()[0].resolve(unsupportedResponse());
+  await flush();
+
+  const out = renderCard(Comp, runtime).out;
+  const button = nodesOf(out).find((n) => n.type === 'button' && (n.children ?? []).join('') === 'Set up mapping');
+  assert.ok(button, `英文按钮文案不对，实际 ${textOf(out)}`);
 });
 
 test('折叠态下不可查且无错误时整块不渲染', async () => {

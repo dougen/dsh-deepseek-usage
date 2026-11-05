@@ -41,7 +41,7 @@ DSH lets you switch between many model providers, but each provider hides its ac
 dsh plugin --profile web add @dougen/dsh-deepseek-usage
 ```
 
-**Step 3 — restart `dsh web`** and open the URL it prints. The card sits at the bottom of the sidebar, below the Cordis panel button; click it to refresh right away. Provider mappings and subscription tokens are configured in **Settings → DeepSeek Usage**.
+**Step 3 — restart `dsh web`** and open the URL it prints. The card sits at the bottom of the sidebar, below the Cordis panel button; click it to refresh right away. Provider mappings and subscription tokens are configured in **Settings → DeepSeek Usage**; when the route behind the selected model is not supported, the card offers a **Set up mapping** button that opens that page directly.
 
 <details>
 <summary>Using a Claude Code / OpenAI Codex subscription (OAuth)</summary>
