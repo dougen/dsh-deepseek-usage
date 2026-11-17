@@ -325,6 +325,28 @@ test('账号路由不受 DEEPSEEK_BASE_URL 影响：grant 只发往官方源', a
   }
 });
 
+test('多币种余额：侧栏取到有余额的 CNY，而非第一位的空 USD', async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    is_available: true,
+    balance_infos: [
+      { currency: 'USD', total_balance: '0.00', granted_balance: '0.00', topped_up_balance: '0.00' },
+      { currency: 'CNY', total_balance: '58.74', granted_balance: '0.00', topped_up_balance: '58.74' },
+    ],
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    const { ctx, routes } = makeCtx({ provider: 'deepseek-official', key: 'sk-multi-wallet' });
+    apply(ctx);
+    const res = await call(routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }));
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.errors, []);
+    assert.equal(res.body.balance.total, 58.74);
+    assert.equal(res.body.balance.currency, 'CNY');
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test('api-key 路由仍遵循 DEEPSEEK_BASE_URL（账号路由的例外不扩大到它）', async () => {
   const seen = [];
   const previousFetch = globalThis.fetch;

@@ -115,6 +115,51 @@ test('DeepSeek 余额：正常、缺失、不可用', () => {
   assert.equal(down.code, 'unavailable');
 });
 
+test('DeepSeek 余额：多币种钱包取有余额的那个，不被空的 USD 盖住', () => {
+  const mainland = parseDeepSeekBalance({
+    is_available: true,
+    balance_infos: [
+      { currency: 'USD', total_balance: '0.00', granted_balance: '0.00', topped_up_balance: '0.00' },
+      { currency: 'CNY', total_balance: '58.74', granted_balance: '0.00', topped_up_balance: '58.74' },
+    ],
+  });
+  assert.equal(mainland.ok, true);
+  assert.equal(mainland.balance.total, 58.74);
+  assert.equal(mainland.balance.currency, 'CNY');
+
+  // 没有数值的钱包不参与挑选。
+  const withMissing = parseDeepSeekBalance({
+    is_available: true,
+    balance_infos: [{ currency: 'USD' }, { currency: 'CNY', total_balance: '9.00' }],
+  });
+  assert.equal(withMissing.balance.total, 9);
+  assert.equal(withMissing.balance.currency, 'CNY');
+
+  // 只有 USD 有钱时不能被 CNY 的 0 盖住——按余额挑，不硬编码币种。
+  const intl = parseDeepSeekBalance({
+    is_available: true,
+    balance_infos: [{ currency: 'USD', total_balance: '10.00' }, { currency: 'CNY', total_balance: '0.00' }],
+  });
+  assert.equal(intl.balance.total, 10);
+  assert.equal(intl.balance.currency, 'USD');
+
+  // 两个都有钱：大陆账号优先 CNY。
+  const both = parseDeepSeekBalance({
+    is_available: true,
+    balance_infos: [{ currency: 'USD', total_balance: '2.00' }, { currency: 'CNY', total_balance: '58.74' }],
+  });
+  assert.equal(both.balance.total, 58.74);
+  assert.equal(both.balance.currency, 'CNY');
+
+  // 全为 0 时退回第一条，保持原有取值顺序。
+  const zero = parseDeepSeekBalance({
+    is_available: true,
+    balance_infos: [{ currency: 'USD', total_balance: '0.00' }, { currency: 'CNY', total_balance: '0.00' }],
+  });
+  assert.equal(zero.balance.total, 0);
+  assert.equal(zero.balance.currency, 'USD');
+});
+
 test('Moonshot 余额：业务码非 0 是 shape', () => {
   const ok = parseMoonshotBalance({ code: 0, data: { available_balance: 49.58894 } });
   assert.equal(ok.ok, true);
