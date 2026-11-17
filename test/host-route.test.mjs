@@ -282,6 +282,57 @@ test('DeepSeek 账号路由未登录时给出可行动的文案', async () => {
   assert.equal(res.body.balance.total, null, '没有余额时是 null，不是 0');
 });
 
+test('api-key 路由无 Key 但有账号 grant 时回退到账号余额（fresh profile）', async () => {
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url: String(url), headers: init?.headers ?? {} });
+    return defaultFetch(url, init);
+  };
+  try {
+    // 只有 grant、没有 API Key：默认模型落在 deepseek-official（issue #6 场景）。
+    const { ctx, routes } = makeCtx({ provider: 'deepseek-official', key: '', grant: 'grant-fallback-1' });
+    apply(ctx);
+    const res = await call(routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }));
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.errors, []);
+    assert.equal(res.body.balance.total, 12.34);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].url, 'https://api.deepseek.com/user/balance', 'grant 只发往官方源');
+    assert.equal(seen[0].headers['x-dsh-auth-token'], 'grant-fallback-1');
+    assert.equal(seen[0].headers.Authorization, undefined, '不得把 grant 当 Bearer 发送');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('api-key 路由既无 Key 也无 grant 时仍报未配置 DEEPSEEK_API_KEY', async () => {
+  const { ctx, routes } = makeCtx({ provider: 'deepseek-official', key: '' });
+  apply(ctx);
+  const res = await call(routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }, '/api/deepseek-usage?lang=en'));
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.errors, ['DEEPSEEK_API_KEY is not configured']);
+  assert.equal(res.body.balance.total, null);
+});
+
+test('api-key 路由 Key 形状非法时不回退到账号 grant', async () => {
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push(String(url));
+    return defaultFetch(url, init);
+  };
+  try {
+    // key 含空格 → isUsableKey 判为 unusable，不应被账号余额掩盖。
+    const { ctx, routes } = makeCtx({ provider: 'deepseek-official', key: 'bad key', grant: 'grant-fallback-2' });
+    apply(ctx);
+    const res = await call(routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }, '/api/deepseek-usage?lang=en'));
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.errors, ['DEEPSEEK_API_KEY contains invalid characters']);
+    assert.equal(seen.length, 0, '不应打上游');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('api-key 路由仍按 Bearer 发送（回归）', async () => {
   const seen = [];
   globalThis.fetch = async (url, init) => {
