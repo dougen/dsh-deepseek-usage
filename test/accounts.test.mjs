@@ -113,6 +113,15 @@ test('DeepSeek 余额：正常、缺失、不可用', () => {
   const down = parseDeepSeekBalance({ is_available: false, balance_infos: [{ currency: 'CNY', total_balance: '1.00' }] });
   assert.equal(down.ok, false);
   assert.equal(down.code, 'unavailable');
+
+  // 可用性是账户级状态：没有 balance_infos 时也要报 unavailable，而不是 empty。
+  for (const body of [
+    { is_available: false },
+    { is_available: false, balance_infos: [] },
+    { is_available: false, balance_infos: [{ currency: 'CNY' }] },
+  ]) {
+    assert.equal(parseDeepSeekBalance(body).code, 'unavailable');
+  }
 });
 
 test('DeepSeek 余额：多币种钱包取有余额的那个，不被空的 USD 盖住', () => {
@@ -255,6 +264,24 @@ test('Kimi Coding 用量：真实字段（limit/used 计数、usages 比例池�
   assert.equal(ratioOnly.ok, true);
   assert.deepEqual(ratioOnly.usage.windows.map((w) => w.key), ['5h']);
   assert.equal(ratioOnly.usage.windows[0].percent, 25);
+});
+
+test('Kimi Coding 用量：TIME_UNIT_* 枚举值正确映射成 5h/7d', () => {
+  // 接口给的是 TIME_UNIT_MINUTE / TIME_UNIT_DAY，不是裸 MINUTE/DAY。
+  // 不剥前缀会让窗口落到 cycle，卡片显示成「周期」。
+  const out = parseKimiCodingUsage({
+    usage: {
+      limits: [
+        { window: { duration: 300, timeUnit: 'TIME_UNIT_MINUTE' }, detail: { limit: '100', used: '10' } },
+        { window: { duration: 7, timeUnit: 'TIME_UNIT_DAY' }, detail: { limit: '100', used: '20' } },
+      ],
+    },
+  });
+  assert.equal(out.ok, true);
+  const byKey = Object.fromEntries(out.usage.windows.map((w) => [w.key, w]));
+  assert.equal(byKey['5h'].percent, 10);
+  assert.equal(byKey['7d'].percent, 20);
+  assert.equal(byKey.cycle, undefined);
 });
 
 test('OpenCode 用量：非 ok 状态的窗口被跳过', () => {
