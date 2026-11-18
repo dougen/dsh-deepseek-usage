@@ -2,7 +2,9 @@
 // `@deepseek-ai/dsh-credentials` 不在本地安装，用 loader 钩子给它一个桩。
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { registerHooks } from 'node:module';
+import { Readable } from 'node:stream';
 
 const CREDENTIALS_STUB = `
 export function credentialRef(name) { return { kind: 'credential-ref', name }; }
@@ -145,24 +147,26 @@ function makeReq(headers = {}, url = '/api/deepseek-usage?lang=zh', method = 'GE
 }
 
 /**
- * 造一个 POST /token 请求。宿主的 readBoundedText 需要 Response 形态
- * （headers.get + text），所以用真的 Response 提供这两样，再补上
- * req 的 method / url / headers。
+ * 造一个 POST /token 请求：正文是只读流、headers 是普通对象——与宿主交来的
+ * Node IncomingMessage 同形。不能再用 Response 形态的替身：那会把"按 Fetch 读法
+ * 读取 Node 请求"这个 bug 盖住（issue #7）。
+ *
+ * `chunked` 模拟分块传输：不声明 Content-Length，正文分两块到达。
  */
-function makePost(payload, headers = {}) {
-  const text = JSON.stringify(payload);
-  const response = new Response(text, { headers: { 'content-type': 'application/json', ...headers } });
-  return {
-    method: 'POST',
-    url: '/api/deepseek-usage/token',
-    headers: {
-      host: '127.0.0.1:64452',
-      'content-type': 'application/json',
-      ...headers,
-      get: (name) => response.headers.get(name),
-    },
-    text: async () => text,
+function makePost(payload, { chunked = false } = {}) {
+  const text = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const body = Buffer.from(text, 'utf8');
+  const half = Math.ceil(body.length / 2);
+  const chunks = chunked ? [body.subarray(0, half), body.subarray(half)] : [body];
+  const req = Readable.from(chunks, { objectMode: false });
+  req.method = 'POST';
+  req.url = '/api/deepseek-usage/token';
+  req.headers = {
+    host: '127.0.0.1:64452',
+    'content-type': 'application/json',
+    ...(chunked ? {} : { 'content-length': String(body.length) }),
   };
+  return req;
 }
 
 function makeRes() {
@@ -972,6 +976,140 @@ test('/token：只接受本机 POST 与白名单内的 provider', async () => {
   const badKey = await call(route, makePost({ provider: 'anthropic', token: 'sk-ant\nsecond-line' }));
   assert.equal(badKey.status, 400);
   assert.ok(!JSON.stringify(badKey.body).includes('sk-ant'), '拒绝响应里不得出现令牌');
+});
+
+// ---- /token 入站正文（issue #7）-------------------------------------------
+
+/** 生成指定字节数（UTF-8）的合法 /token 请求正文。 */
+function tokenBodyOfSize(bytes) {
+  const prefix = '{"provider":"anthropic","token":"';
+  const suffix = '"}';
+  const fill = bytes - Buffer.byteLength(prefix) - Buffer.byteLength(suffix);
+  return `${prefix}${'x'.repeat(fill)}${suffix}`;
+}
+
+test('/token：恰好 8 KiB 的正文可以保存，超一字节返回 413', async () => {
+  const stored = {};
+  const { ctx, routes } = makeCtx({ provider: 'anthropic', refs: {} });
+  ctx.credentials.set = async (ref, value) => { stored[ref.name] = value; };
+  ctx.credentials.unset = async (ref) => { delete stored[ref.name]; };
+  apply(ctx);
+  const route = routes.get('/api/deepseek-usage/token');
+
+  const atLimit = tokenBodyOfSize(8 * 1024);
+  assert.equal(Buffer.byteLength(atLimit, 'utf8'), 8 * 1024);
+  const ok = await call(route, makePost(atLimit));
+  assert.equal(ok.status, 200, '恰好 8 KiB 不是超限');
+  assert.equal(ok.body.configured, true);
+  const saved = JSON.parse(atLimit).token;
+  assert.equal(stored.DSH_USAGE_CLAUDE_OAUTH_TOKEN, saved);
+
+  const overLimit = tokenBodyOfSize(8 * 1024 + 1);
+  const declared = await call(route, makePost(overLimit));
+  assert.equal(declared.status, 413);
+  assert.equal(declared.body.error, 'payload');
+  assert.ok(!JSON.stringify(declared.body).includes('xxxxx'), '413 响应不得回显请求正文');
+  assert.equal(stored.DSH_USAGE_CLAUDE_OAUTH_TOKEN, saved, '超限请求不得改动凭据');
+
+  // 分块传输没有 Content-Length：只能按实际收到的字节判断。
+  const chunked = await call(route, makePost(overLimit, { chunked: true }));
+  assert.equal(chunked.status, 413);
+  assert.equal(chunked.body.error, 'payload');
+  assert.equal(stored.DSH_USAGE_CLAUDE_OAUTH_TOKEN, saved, '超限请求不得改动凭据');
+});
+
+test('/token：无效 JSON 返回 400，正文读取失败也返回 400 而不是 413', async () => {
+  const { ctx, routes } = makeCtx({ provider: 'anthropic', refs: {} });
+  const warnings = [];
+  ctx.logger = { warn: (line) => warnings.push(String(line)) };
+  apply(ctx);
+  const route = routes.get('/api/deepseek-usage/token');
+
+  const invalid = await call(route, makePost('{"provider":'));
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.body.error, 'payload');
+
+  // 流在读完前出错（模拟客户端中途断开）：不是超限，不能报 413。
+  const broken = new Readable({ read() { this.destroy(new Error('socket hang up')); } });
+  broken.method = 'POST';
+  broken.url = '/api/deepseek-usage/token';
+  broken.headers = { host: '127.0.0.1:64452', 'content-type': 'application/json' };
+  const failed = await call(route, broken);
+  assert.equal(failed.status, 400);
+  assert.equal(failed.body.error, 'payload');
+  assert.ok(!warnings.join('\n').includes('socket hang up'), '日志里不得出现异常原文');
+});
+
+/** 起一个真的 HTTP 服务把 /token 路由接上去：req 是真的 IncomingMessage。 */
+async function withTokenServer(routes, fn) {
+  const route = routes.get('/api/deepseek-usage/token');
+  const server = http.createServer((req, res) => { void route.handler(req, res); });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  try {
+    return await fn(port);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+/** 向真实服务 POST 一次；`chunked` 时不声明 Content-Length，按分块传输发送。 */
+function httpPost(port, body, { chunked = false } = {}) {
+  return new Promise((resolve, reject) => {
+    const headers = { host: `127.0.0.1:${port}`, 'content-type': 'application/json', connection: 'close' };
+    if (!chunked) headers['content-length'] = String(Buffer.byteLength(body, 'utf8'));
+    const req = http.request({
+      host: '127.0.0.1',
+      port,
+      path: '/api/deepseek-usage/token',
+      method: 'POST',
+      headers,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve({ status: res.statusCode, body: text === '' ? undefined : JSON.parse(text) });
+      });
+    });
+    req.on('error', reject);
+    if (chunked) {
+      const bytes = Buffer.from(body, 'utf8');
+      const half = Math.ceil(bytes.length / 2);
+      req.write(bytes.subarray(0, half));
+      req.end(bytes.subarray(half));
+    } else {
+      req.end(body);
+    }
+  });
+}
+
+test('/token：真实 Node HTTP 请求——分块小正文保存成功，超限（含分块）413', async () => {
+  const stored = {};
+  const { ctx, routes } = makeCtx({ provider: 'anthropic', refs: {} });
+  ctx.credentials.set = async (ref, value) => { stored[ref.name] = value; };
+  ctx.credentials.unset = async (ref) => { delete stored[ref.name]; };
+  apply(ctx);
+
+  await withTokenServer(routes, async (port) => {
+    // 分块传输的小正文：issue #7 里被误判成 413 的正是这类请求。
+    const written = await httpPost(port, JSON.stringify({ provider: 'anthropic', token: 'sk-ant-oat01-real' }), { chunked: true });
+    assert.equal(written.status, 200);
+    assert.equal(written.body.configured, true);
+    assert.equal(stored.DSH_USAGE_CLAUDE_OAUTH_TOKEN, 'sk-ant-oat01-real');
+
+    const tooBig = tokenBodyOfSize(8 * 1024 + 1);
+    const declared = await httpPost(port, tooBig);
+    assert.equal(declared.status, 413, 'Content-Length 声明的超限正文应返回 413');
+    assert.equal(declared.body.error, 'payload');
+
+    const chunked = await httpPost(port, tooBig, { chunked: true });
+    assert.equal(chunked.status, 413, '分块传输的超限正文也要按实际字节拒绝');
+
+    const badJson = await httpPost(port, '{provider:');
+    assert.equal(badJson.status, 400);
+    assert.equal(stored.DSH_USAGE_CLAUDE_OAUTH_TOKEN, 'sk-ant-oat01-real', '失败请求不得改动凭据');
+  });
 });
 
 test('上游异常不会把异常原文送到浏览器（多提供商路径）', async () => {
