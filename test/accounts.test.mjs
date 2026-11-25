@@ -20,6 +20,7 @@ import {
   parseOpenRouterCredits,
   parseOpenRouterKey,
   parseZaiBalance,
+  parseZaiCodingQuota,
   supportedProviderIds,
   unsupportedReasonOf,
 } from '../lib/accounts.js';
@@ -28,6 +29,9 @@ test('能力表覆盖三类 provider', () => {
   assert.equal(accountCapabilityOf('deepseek-official').kind, 'balance');
   assert.equal(accountCapabilityOf('moonshotai').kind, 'balance');
   assert.equal(accountCapabilityOf('zai').kind, 'balance');
+  // Z.ai 的两条订阅路由：国内 Coding Plan 是 DSH 内置路由，海外那条供映射。
+  assert.equal(accountCapabilityOf('zai-coding-cn').kind, 'usage');
+  assert.equal(accountCapabilityOf('zai-coding').kind, 'usage');
   assert.equal(accountCapabilityOf('openrouter').kind, 'balance');
   assert.equal(accountCapabilityOf('mimo').kind, 'balance');
   assert.equal(accountCapabilityOf('mimo-token-plan').kind, 'usage');
@@ -68,6 +72,9 @@ test('候选引用：派生引用在前，适配器原生环境名在后', () =>
   assert.deepEqual(candidateRefsOf('moonshotai'), ['MOONSHOTAI_API_KEY', 'MOONSHOT_API_KEY']);
   assert.deepEqual(candidateRefsOf('minimax-cn'), ['MINIMAX_CN_API_KEY', 'MINIMAX_API_KEY']);
   assert.deepEqual(candidateRefsOf('zai'), ['ZAI_API_KEY', 'ZAI_CODING_CN_API_KEY']);
+  // 国内 Coding Plan 路由只认自己的 Key：按量 Key 读不到套餐。
+  assert.deepEqual(candidateRefsOf('zai-coding-cn'), ['ZAI_CODING_CN_API_KEY']);
+  assert.deepEqual(candidateRefsOf('zai-coding'), ['ZAI_CODING_API_KEY', 'ZAI_API_KEY']);
   assert.deepEqual(candidateRefsOf('mimo'), ['MIMO_API_KEY']);
   assert.deepEqual(candidateRefsOf('mimo-token-plan'), ['MIMO_TOKEN_PLAN_API_KEY']);
   // OAuth 与非 balance/usage 类不参与 API Key 解析。
@@ -201,6 +208,81 @@ test('智谱余额：success false 是 shape，空 data 是 empty', () => {
   assert.equal(parseZaiBalance({ success: false, msg: 'nope' }).code, 'shape');
   assert.equal(parseZaiBalance({ success: true, data: {} }).code, 'empty');
   assert.equal(parseZaiBalance({}).code, 'shape');
+});
+
+test('GLM Coding Plan 额度：三类池子按 type/unit/number 归到窗口，percentage 是已用', () => {
+  const out = parseZaiCodingQuota({
+    code: 200,
+    msg: '操作成功',
+    success: true,
+    data: {
+      level: 'lite',
+      limits: [
+        { type: 'TOKENS_LIMIT', unit: 3, number: 5, percentage: 1, nextResetTime: 1778753640304 },
+        { type: 'TIME_LIMIT', unit: 5, number: 1, usage: 100, currentValue: 0, remaining: 100, percentage: 0, nextResetTime: 1781345721976 },
+        // 文档示例里没有周额度；补一条验证顺序与 key。
+        { type: 'TOKENS_LIMIT', unit: 6, number: 1, percentage: 34.5, nextResetTime: 1780000000 },
+      ],
+    },
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.balance, null);
+  assert.equal(out.usage.plan, 'GLM Coding Lite');
+  assert.deepEqual(out.usage.windows, [
+    { key: '5h', percent: 1, resetsAt: 1778753640304 },
+    { key: '7d', percent: 34.5, resetsAt: 1780000000000 },
+    { key: 'mcp', percent: 0, resetsAt: 1781345721976 },
+  ]);
+});
+
+test('GLM Coding Plan 额度：接口只返回的池子才画，认不出的条目不猜', () => {
+  // 海外团队版按 credit 计；周额度缺失时卡片上就没有 7d。
+  const team = parseZaiCodingQuota({
+    success: true,
+    data: {
+      level: 'PRO',
+      limits: [
+        { type: 'CREDIT_LIMIT', unit: 3, number: 5, percentage: 12, nextResetTime: '2026-11-27T10:00:00.000Z' },
+        // 同样是 token 池但不是 5 小时：不归到任何窗口。
+        { type: 'TOKENS_LIMIT', unit: 3, number: 200, percentage: 80 },
+      ],
+    },
+  });
+  assert.equal(team.ok, true);
+  assert.equal(team.usage.plan, 'GLM Coding Pro');
+  assert.deepEqual(team.usage.windows, [{ key: '5h', percent: 12, resetsAt: Date.parse('2026-11-27T10:00:00.000Z') }]);
+
+  // percentage 缺失：按同一条的 已用/总量 折算；连总数也没有就不画，不当成 0%。
+  const derived = parseZaiCodingQuota({
+    data: {
+      limits: [
+        { type: 'TIME_LIMIT', unit: 5, number: 1, usage: 200, currentValue: 50, remaining: 150 },
+        { type: 'TOKENS_LIMIT', unit: 3, number: 5 },
+      ],
+    },
+  });
+  assert.deepEqual(derived.usage.windows, [{ key: 'mcp', percent: 25, resetsAt: null }]);
+
+  // 越界值截到 0–100。
+  const clamped = parseZaiCodingQuota({
+    data: { limits: [{ type: 'TOKENS_LIMIT', unit: 3, number: 5, percentage: 140 }, { type: 'TOKENS_LIMIT', unit: 6, percentage: -5 }] },
+  });
+  assert.deepEqual(clamped.usage.windows.map((w) => w.percent), [100, 0]);
+});
+
+test('GLM Coding Plan 额度：没套餐是 noPlan，其它失败信封是 shape，成功但没有池子是 empty', () => {
+  // 接口对「没有套餐」仍回 HTTP 200，只是信封是失败的。
+  assert.equal(parseZaiCodingQuota({ code: 400, msg: '当前用户不存在coding plan', success: false }).code, 'noPlan');
+  assert.equal(parseZaiCodingQuota({ code: 401, msg: '用户没有资格访问' }).code, 'noPlan');
+  assert.equal(parseZaiCodingQuota({ code: 401, msg: '令牌已过期或失效', success: false }).code, 'shape');
+  assert.equal(parseZaiCodingQuota({ success: false }).code, 'shape');
+  assert.equal(parseZaiCodingQuota([]).code, 'shape');
+  assert.equal(parseZaiCodingQuota(null).code, 'shape');
+
+  assert.equal(parseZaiCodingQuota({ code: 200, success: true, data: { level: 'lite', limits: [] } }).code, 'empty');
+  assert.equal(parseZaiCodingQuota({ code: 200, data: { limits: [{ type: 'TIME_LIMIT', unit: 9, number: 1, percentage: 5 }] } }).code, 'empty');
+  // 没有 code 字段、也没说失败的信封按成功处理（与 ZCode 的判定一致）。
+  assert.equal(parseZaiCodingQuota({ data: { limits: [{ type: 'TOKENS_LIMIT', unit: 3, number: 5, percentage: 7 }] } }).usage.windows[0].percent, 7);
 });
 
 test('OpenRouter：单 Key 无限额时回落总余额', () => {
@@ -591,6 +673,49 @@ test('取数：OpenCode 用量接口同时带 Authorization 与 x-api-key', asyn
   assert.equal(out.usage.windows[0].percent, 4);
   assert.equal(calls[0].init.headers.Authorization, 'Bearer sk-test');
   assert.equal(calls[0].init.headers['x-api-key'], 'sk-test');
+});
+
+test('取数：GLM Coding Plan 额度头是裸 Key（不加 Bearer），国内走 open.bigmodel.cn、海外走 api.z.ai', async () => {
+  const quota = {
+    code: 200,
+    success: true,
+    data: { level: 'lite', limits: [{ type: 'TOKENS_LIMIT', unit: 3, number: 5, percentage: 9, nextResetTime: 1778753640304 }] },
+  };
+  const { impl, calls } = stubFetch({ '/api/monitor/usage/quota/limit': { body: quota } });
+  const reader = makeAccountReader({ fetchImpl: impl });
+
+  const cn = await reader.read(accountCapabilityOf('zai-coding-cn'), 'id.secret');
+  assert.equal(cn.ok, true);
+  assert.deepEqual(cn.usage.windows, [{ key: '5h', percent: 9, resetsAt: 1778753640304 }]);
+  assert.match(calls[0].url, /^https:\/\/open\.bigmodel\.cn\/api\/monitor\/usage\/quota\/limit$/);
+  assert.equal(calls[0].init.headers.Authorization, 'id.secret', '与 ZCode 一致：发裸 Key');
+  assert.equal(calls[0].init.headers['x-api-key'], undefined);
+  assert.equal(calls[0].init.method, 'GET');
+
+  const intl = await reader.read(accountCapabilityOf('zai-coding'), 'id.secret');
+  assert.equal(intl.ok, true);
+  assert.match(calls[1].url, /^https:\/\/api\.z\.ai\/api\/monitor\/usage\/quota\/limit$/);
+  assert.equal(calls[1].init.headers.Authorization, 'id.secret');
+});
+
+test('取数：GLM Coding Plan 国内主域失败时回落 bigmodel.cn，没套餐时给出 noPlan', async () => {
+  const { impl, calls } = stubFetch({
+    'open.bigmodel.cn': { status: 502, body: {} },
+    'bigmodel.cn/api/monitor': { body: { code: 200, success: true, data: { limits: [{ type: 'TOKENS_LIMIT', unit: 6, number: 1, percentage: 40 }] } } },
+  });
+  const reader = makeAccountReader({ fetchImpl: impl });
+  const out = await reader.read(accountCapabilityOf('zai-coding-cn'), 'k');
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.usage.windows.map((w) => w.key), ['7d']);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].url, /^https:\/\/bigmodel\.cn\/api\/monitor\/usage\/quota\/limit$/);
+
+  // 两边都回 401：不把 Key 或上游原文带出去，按无法解析处理。
+  const denied = stubFetch({ '/api/monitor/usage/quota/limit': { status: 401, body: { code: 401, msg: '令牌已过期或失效' } } });
+  const out2 = await makeAccountReader({ fetchImpl: denied.impl }).read(accountCapabilityOf('zai-coding-cn'), 'bad');
+  assert.equal(out2.ok, false);
+  assert.equal(out2.code, 'shape');
+  assert.equal(denied.calls.length, 2, '主域失败后应尝试第二个 host');
 });
 
 test('取数：Claude 403 时回落最小推理请求读限流头', async () => {

@@ -169,6 +169,7 @@ const labels = (k) => ({
   'accounts.window.7d': '7 天',
   'accounts.window.7d-opus': 'Opus 7 天',
   'accounts.window.30d': '30 天',
+  'accounts.window.mcp': 'MCP / 工具（月）',
   'accounts.window.cycle': '当前周期',
 }[k] ?? k);
 
@@ -178,6 +179,7 @@ const enLabels = (k) => ({
   'accounts.window.7d': '7-day',
   'accounts.window.7d-opus': 'Opus 7-day',
   'accounts.window.30d': '30-day',
+  'accounts.window.mcp': 'MCP / tools (monthly)',
   'accounts.window.cycle': 'Current cycle',
 }[k] ?? k);
 
@@ -246,6 +248,29 @@ test('用量窗口悬浮说明：已用百分比 + 重置剩余时间', () => {
   // 没有重置时间（或已经过了）时只讲已用，不编一个倒计时。
   assert.equal(I.windowHint({ key: '7d', percent: 34, resetsAt: null }, labels, 'zh'), '7 天：已用 34%');
   assert.equal(I.windowHint({ key: '7d', percent: 34, resetsAt: 1 }, enLabels, 'en'), '7-day: 34% used');
+});
+
+test('GLM Coding Plan：MCP 工具月额度单独成档，排在月度档之后、周期之前，真实词典里有标签', () => {
+  const rows = I.usageWindows({
+    usage: {
+      plan: 'GLM Coding Lite',
+      windows: [
+        { key: 'mcp', percent: 3, resetsAt: 5000 },
+        { key: '30d', percent: 20, resetsAt: 6000 },
+        { key: '7d', percent: 34, resetsAt: 3000 },
+        { key: '5h', percent: 1, resetsAt: 2000 },
+        { key: 'cycle', percent: 99, resetsAt: 7000 },
+      ],
+    },
+  });
+  assert.deepEqual(rows.map((w) => w.key), ['5h', '7d', '30d', 'mcp', 'cycle']);
+  assert.equal(I.windowLabel(labels, 'mcp', 'zh'), 'MCP / 工具（月）');
+  assert.equal(I.windowLabel(enLabels, 'mcp', 'en'), 'MCP / tools (monthly)');
+  assert.equal(I.windowBadge('mcp'), 'MCP');
+  assert.match(I.windowHint({ key: 'mcp', percent: 3, resetsAt: null }, labels, 'zh'), /^MCP \/ 工具（月）：已用 3%/);
+  // lib/client.js 内置的 ZH / EN 词典必须带这一条，否则卡片上会直接显示 key。
+  assert.match(source, /"accounts\.window\.mcp": "MCP \/ 工具（月）"/);
+  assert.match(source, /"accounts\.window\.mcp": "MCP \/ tools \(monthly\)"/);
 });
 
 test('用量比例：夹在 0–1', () => {

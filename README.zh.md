@@ -15,7 +15,7 @@
 
 <img src="https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot2.png" alt="订阅用量：各计费窗口的剩余额度" width="520" />
 
-*订阅形态（Kimi For Coding、OpenCode、MiniMax、MiMo Token Plan、Claude Code / Codex 等）：每个用量窗口一个 D 形仪表盘——中间的数是剩余额度，灰色弧是已用量，绿色弧是剩余量（已用达到 80% 时转红），底部徽章标出窗口（`5H` = 5 小时、`7D` = 周、`1M` = 月）。*
+*订阅形态（Kimi For Coding、OpenCode、MiniMax、MiMo Token Plan、Z.ai GLM Coding Plan、Claude Code / Codex 等）：每个用量窗口一个 D 形仪表盘——中间的数是剩余额度，灰色弧是已用量，绿色弧是剩余量（已用达到 80% 时转红），底部徽章标出窗口（`5H` = 5 小时、`7D` = 周、`1M` = 月、`MCP` = MCP / 工具月额度）。*
 
 ## 这个插件是干嘛的
 
@@ -23,7 +23,7 @@ DSH 可以切换很多家模型提供商，但每家的账户状况藏在不同�
 
 - **账户读数**，按提供商公开的内容分两种形态：
   - *余额类*（DeepSeek、Moonshot / Kimi、智谱 Z.ai、OpenRouter、MiMo）公开账户余额，卡片直接显示带币种符号（`¥` / `$`）的余额。
-  - *订阅类*（Kimi For Coding、OpenCode、MiniMax、MiMo Token Plan、Claude Code、OpenAI Codex）没有余额可查，只公开用量窗口。卡片按接口返回的窗口各画一个仪表盘——5 小时、周、月，返回几个画几个——显示每份额度还剩多少，已用达到 80% 时剩余弧变红。
+  - *订阅类*（Kimi For Coding、OpenCode、MiniMax、MiMo Token Plan、Z.ai GLM Coding Plan、Claude Code、OpenAI Codex）没有余额可查，只公开用量窗口。卡片按接口返回的窗口各画一个仪表盘——5 小时、周、月，返回几个画几个——显示每份额度还剩多少，已用达到 80% 时剩余弧变红。GLM Coding Plan 的 MCP / 工具月额度单独成档（按调用次数计，不是 token）。
   - 卡片始终跟随当前选中的模型，切换提供商即切换读数；除凭据外不需要针对某家提供商再做任何配置。
 - **当前模型的单价**。卡片列出输入 / 输入缓存 / 输出的单价，按此刻生效的计费时段取值，币种跟该提供商保持一致。有的提供商按时段计价——DeepSeek 官方峰谷（北京时间周一至周五 09:00–12:00、14:00–18:00 为高峰，夜间、周末、节假日为空闲）或 OpenRouter 的分时定价——卡片会用一枚橙 / 绿指示灯标出当前时段，悬浮可见距下次切换还剩多久。
 ## 支持的提供商
@@ -36,6 +36,8 @@ DSH 可以切换很多家模型提供商，但每家的账户状况藏在不同�
 | `deepseek-account` | DeepSeek Account | 余额 | DeepSeek 账号登录授权 |
 | `moonshotai` | Moonshot | 余额 | `MOONSHOTAI_API_KEY` / `MOONSHOT_API_KEY` |
 | `zai` | Z.ai (GLM) | 余额 | `ZAI_API_KEY` / `ZAI_CODING_CN_API_KEY` |
+| `zai-coding-cn` | Z.ai Coding Plan (CN) | 用量 | `ZAI_CODING_CN_API_KEY` |
+| `zai-coding` | Z.ai Coding Plan | 用量 | `ZAI_CODING_API_KEY` / `ZAI_API_KEY` |
 | `openrouter` | OpenRouter | 余额 | `OPENROUTER_API_KEY` |
 | `mimo` | MiMo | 余额 | `MIMO_API_KEY`（`sk-`） |
 | `kimi-coding` | Kimi For Coding | 用量 | `KIMI_CODING_API_KEY` / `KIMI_API_KEY` |
@@ -49,7 +51,7 @@ DSH 可以切换很多家模型提供商，但每家的账户状况藏在不同�
 
 ## 如何安装和使用
 
-**第 1 步——配置提供商的凭据。** 插件用你给该提供商配的那把 Key 查询：在 DSH 设置的**模型页**填好，或导出为环境变量（`DEEPSEEK_API_KEY`、`MOONSHOTAI_API_KEY`、`ZAI_API_KEY`、`OPENROUTER_API_KEY`、`KIMI_CODING_API_KEY`、`OPENCODE_API_KEY`、`MINIMAX_API_KEY`、`MIMO_API_KEY`、`MIMO_TOKEN_PLAN_API_KEY` 等）。MiMo 的普通 `sk-` Key 只读按量余额；Token Plan 专属 `tp-` Key 与它不互通，普通 Key 也读不到套餐额度。`deepseek-account` 是例外：它不需要密钥——在 DSH 里登录 DeepSeek 账号即可，卡片读的是登录留下的授权。
+**第 1 步——配置提供商的凭据。** 插件用你给该提供商配的那把 Key 查询：在 DSH 设置的**模型页**填好，或导出为环境变量（`DEEPSEEK_API_KEY`、`MOONSHOTAI_API_KEY`、`ZAI_API_KEY`、`ZAI_CODING_CN_API_KEY`、`OPENROUTER_API_KEY`、`KIMI_CODING_API_KEY`、`OPENCODE_API_KEY`、`MINIMAX_API_KEY`、`MIMO_API_KEY`、`MIMO_TOKEN_PLAN_API_KEY` 等）。MiMo 的普通 `sk-` Key 只读按量余额；Token Plan 专属 `tp-` Key 与它不互通，普通 Key 也读不到套餐额度。`deepseek-account` 是例外：它不需要密钥——在 DSH 里登录 DeepSeek 账号即可，卡片读的是登录留下的授权。
 
 **第 2 步——把插件装进 `web` profile：**
 
@@ -68,6 +70,16 @@ API Key 读不到这两种订阅——它们走 OAuth 令牌。当 DSH 检测到
 - **OpenAI Codex**——从 `~/.codex/auth.json` 复制 `tokens.access_token` 填进令牌框，`tokens.account_id` 填进账号 ID 框。
 
 令牌经 DSH 的凭据服务保存在本机（`~/.dsh/.credentials.yaml`），任何响应、日志、页面元素都不会把它带出去；点**清除**按钮即可删除。
+</details>
+
+<details>
+<summary>使用 Z.ai GLM Coding Plan（国内 / 海外）</summary>
+
+DSH 内置的 `zai-coding-cn` 路由就是智谱 BigModel 的 Coding Plan（Key 为 `ZAI_CODING_CN_API_KEY`）。插件读的是套餐额度接口 `GET https://open.bigmodel.cn/api/monitor/usage/quota/limit`（主域失败时回落 `bigmodel.cn`）：5 小时 Prompt 池、每周额度（套餐有时才返回）、MCP / 工具月额度各画一个仪表盘，已用达到 80% 时变红。按量余额接口读不到这些额度，套餐 Key 也读不到按量余额——两者不通用。
+
+- 之前的版本要把 `zai-coding-cn` 映射到 `zai` 才能出数，读到的是按量余额；现在这条路由已是内置能力，旧映射会被忽略（不报错），可以删掉。
+- 海外 Z.ai Coding Plan 在 DSH 里没有同名内置路由：把自定义路由映射到 `zai-coding`（Key `ZAI_API_KEY`），读的是 `https://api.z.ai` 上的同一接口。
+- 卡片提示「当前 API Key 没有有效的 Coding Plan」时，说明这把 Key 是按量 Key，或者套餐未生效 / 已到期。
 </details>
 
 <details>
