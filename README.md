@@ -7,28 +7,49 @@
 
 English | [中文](README.zh.md)
 
-A **DeepSeek Harness (DSH)** sidebar plugin that shows, right in the DSH main window, how much money or quota is left on the account behind the currently selected model, and what that model costs right now — without leaving DSH. It supports nine providers.
+A **DeepSeek Harness (DSH)** sidebar plugin that shows, right in the DSH main window, how much money or quota is left on the account behind the currently selected model, and what that model costs right now — without leaving DSH. It supports ten providers.
 
 <img src="https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot.png" alt="The sidebar card: balance, current unit prices and the billing-window dot" width="520" />
 
-*Balance mode (DeepSeek, Kimi, Z.ai, OpenRouter…): the account balance, the current model's input / cache / output unit prices, and the peak / off-peak indicator in the top-right corner.*
+*Balance mode (DeepSeek, Kimi, Z.ai, OpenRouter, MiMo…): the account balance, the current model's input / cache / output unit prices, and the peak / off-peak indicator in the top-right corner.*
 
 <img src="https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot2.png" alt="Subscription usage: remaining quota per billing window" width="520" />
 
-*Subscription mode (Kimi For Coding, OpenCode, MiniMax, Claude Code / Codex…): one D-shaped gauge per usage window — the number in the middle is the remaining quota, the grey arc is what has been used, the green arc is what is left (red once 80% is used), and the badge names the window (`5H` = 5-hour, `7D` = weekly, `1M` = monthly).*
+*Subscription mode (Kimi For Coding, OpenCode, MiniMax, MiMo Token Plan, Claude Code / Codex…): one D-shaped gauge per usage window — the number in the middle is the remaining quota, the grey arc is what has been used, the green arc is what is left (red once 80% is used), and the badge names the window (`5H` = 5-hour, `7D` = weekly, `1M` = monthly).*
 
 ## What this plugin does
 
 DSH lets you switch between many model providers, but each provider hides its account status on a different website. This plugin resolves the provider behind the model you have selected in DSH and puts a live status card for that account at the bottom of the sidebar:
 
 - **Account reading.** Two forms, depending on what the provider offers:
-  - *Balance providers* (DeepSeek, Moonshot / Kimi, Z.ai, OpenRouter) publish the account balance, so the card shows it with its currency symbol (`¥` / `$`).
-  - *Subscription providers* (Kimi For Coding, OpenCode, MiniMax, Claude Code, OpenAI Codex) publish no balance, only usage windows. The card draws one gauge per window — 5-hour, weekly, monthly, whatever the endpoint returns — and shows how much of each quota remains, turning red once 80% is used.
+  - *Balance providers* (DeepSeek, Moonshot / Kimi, Z.ai, OpenRouter, MiMo) publish the account balance, so the card shows it with its currency symbol (`¥` / `$`).
+  - *Subscription providers* (Kimi For Coding, OpenCode, MiniMax, MiMo Token Plan, Claude Code, OpenAI Codex) publish no balance, only usage windows. The card draws one gauge per window — 5-hour, weekly, monthly, whatever the endpoint returns — and shows how much of each quota remains, turning red once 80% is used.
   - The card always follows the selected model, so switching provider switches the reading; no per-provider setup beyond the credential.
 - **Unit prices of the current model.** The card lists input, input-cache and output prices for the billing period in effect right now, in the provider's own currency. When a provider bills by time of day — DeepSeek's official peak / off-peak schedule (Mon–Fri 09:00–12:00 and 14:00–18:00 Beijing time is peak, evenings, weekends and holidays are off-peak) or OpenRouter's time-of-day pricing — an orange / green dot marks which window is active, and hovering it shows the time left until the next switch.
+## Supported providers
+
+The matching is by DSH provider id. An unlisted route can be mapped to one of these ids in **Settings → DeepSeek Usage**.
+
+| Provider id | Display name | Account reading | Credential |
+| --- | --- | --- | --- |
+| `deepseek-official`, `deepseek` | DeepSeek | balance | `DEEPSEEK_API_KEY` |
+| `deepseek-account` | DeepSeek Account | balance | DeepSeek sign-in grant |
+| `moonshotai` | Moonshot | balance | `MOONSHOTAI_API_KEY` / `MOONSHOT_API_KEY` |
+| `zai` | Z.ai (GLM) | balance | `ZAI_API_KEY` / `ZAI_CODING_CN_API_KEY` |
+| `openrouter` | OpenRouter | balance | `OPENROUTER_API_KEY` |
+| `mimo` | MiMo | balance | `MIMO_API_KEY` (`sk-`) |
+| `kimi-coding` | Kimi For Coding | usage | `KIMI_CODING_API_KEY` / `KIMI_API_KEY` |
+| `opencode` | OpenCode | usage | `OPENCODE_API_KEY` |
+| `opencode-go` | OpenCode Go | usage | `OPENCODE_GO_API_KEY` / `OPENCODE_API_KEY` |
+| `minimax` | MiniMax | usage | `MINIMAX_API_KEY` |
+| `minimax-cn` | MiniMax (CN) | usage | `MINIMAX_CN_API_KEY` / `MINIMAX_API_KEY` |
+| `mimo-token-plan` | MiMo Token Plan | usage | `MIMO_TOKEN_PLAN_API_KEY` (`tp-`) |
+| `anthropic` | Claude Code | OAuth token | `DSH_USAGE_CLAUDE_OAUTH_TOKEN` |
+| `openai-codex` (`chatgpt-codex` alias) | OpenAI Codex | OAuth token | `DSH_USAGE_CODEX_OAUTH_TOKEN`, optional `DSH_USAGE_CODEX_ACCOUNT_ID` |
+
 ## Installation and usage
 
-**Step 1 — configure the provider's credential.** The plugin queries each provider with the key you already use for that provider: fill it on the **Models page in DSH**, or export it as an environment variable (`DEEPSEEK_API_KEY`, `MOONSHOTAI_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `KIMI_CODING_API_KEY`, `OPENCODE_API_KEY`, `MINIMAX_API_KEY`, …). The `deepseek-account` route is the exception: it needs no key — sign in to DeepSeek inside DSH and the card reads that account grant.
+**Step 1 — configure the provider's credential.** The plugin queries each provider with the key you already use for that provider: fill it on the **Models page in DSH**, or export it as an environment variable (`DEEPSEEK_API_KEY`, `MOONSHOTAI_API_KEY`, `ZAI_API_KEY`, `OPENROUTER_API_KEY`, `KIMI_CODING_API_KEY`, `OPENCODE_API_KEY`, `MINIMAX_API_KEY`, `MIMO_API_KEY`, `MIMO_TOKEN_PLAN_API_KEY`, …). MiMo's ordinary `sk-` key reads the pay-as-you-go balance; its `tp-` Token Plan key is separate and cannot read that balance, and the ordinary key cannot read Token Plan quota. The `deepseek-account` route is the exception: it needs no key — sign in to DeepSeek inside DSH and the card reads that account grant.
 
 **Step 2 — install the plugin into the `web` profile:**
 

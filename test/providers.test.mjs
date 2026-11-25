@@ -11,6 +11,8 @@ test('可映射集合含 balance / usage / OAuth 路由，排除账号登录与�
   assert.ok(ids.includes('opencode-go'));
   assert.ok(ids.includes('kimi-coding'));
   assert.ok(ids.includes('minimax-cn'));
+  assert.ok(ids.includes('mimo'));
+  assert.ok(ids.includes('mimo-token-plan'));
   // OAuth 目标：凭据是订阅令牌，由插件页单独写入凭据服务。
   assert.ok(ids.includes('anthropic'));
   assert.ok(ids.includes('openai-codex'));
@@ -109,6 +111,16 @@ test('映射解析：refs 顺序为 显式 → 派生 → 能力表默认', () =
     'DSH_OPENCODE_GO_API_KEY',
     'OPENCODE_GO_API_KEY',
   ]);
+});
+
+test('映射解析：MiMo 套餐目标只产生套餐凭据引用', () => {
+  const { aliases, warnings } = normalizeAliases([
+    { provider: 'dsh-mimo-plan', capability: 'mimo-token-plan', refs: ['CUSTOM_REF'] },
+  ]);
+  assert.deepEqual(warnings, []);
+  const resolved = createProviderResolver(aliases).resolve('dsh-mimo-plan');
+  assert.equal(resolved.capabilityId, 'mimo-token-plan');
+  assert.deepEqual(resolved.refs, ['CUSTOM_REF', 'DSH_MIMO_PLAN_API_KEY', 'MIMO_TOKEN_PLAN_API_KEY']);
 });
 
 test('映射解析：大小写与空白不影响匹配', () => {

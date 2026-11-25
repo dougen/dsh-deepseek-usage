@@ -7,28 +7,49 @@
 
 [English](README.md) | 中文
 
-一个 **DeepSeek Harness（DSH）** 的侧边栏插件：在 DSH 主界面就能看到**当前选中模型背后的账户还剩多少钱 / 多少额度**、**这个模型此刻什么价**。覆盖九家提供商。
+一个 **DeepSeek Harness（DSH）** 的侧边栏插件：在 DSH 主界面就能看到**当前选中模型背后的账户还剩多少钱 / 多少额度**、**这个模型此刻什么价**。覆盖十家提供商。
 
 <img src="https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot.png" alt="侧边栏卡片：余额、当前单价与计费时段指示灯" width="520" />
 
-*余额形态（DeepSeek、Kimi、Z.ai、OpenRouter 等）：账户余额、当前模型的输入 / 输入缓存 / 输出单价，右上角是峰谷时段指示灯。*
+*余额形态（DeepSeek、Kimi、Z.ai、OpenRouter、MiMo 等）：账户余额、当前模型的输入 / 输入缓存 / 输出单价，右上角是峰谷时段指示灯。*
 
 <img src="https://cdn.jsdelivr.net/npm/@dougen/dsh-deepseek-usage/screenshot2.png" alt="订阅用量：各计费窗口的剩余额度" width="520" />
 
-*订阅形态（Kimi For Coding、OpenCode、MiniMax、Claude Code / Codex 等）：每个用量窗口一个 D 形仪表盘——中间的数是剩余额度，灰色弧是已用量，绿色弧是剩余量（已用达到 80% 时转红），底部徽章标出窗口（`5H` = 5 小时、`7D` = 周、`1M` = 月）。*
+*订阅形态（Kimi For Coding、OpenCode、MiniMax、MiMo Token Plan、Claude Code / Codex 等）：每个用量窗口一个 D 形仪表盘——中间的数是剩余额度，灰色弧是已用量，绿色弧是剩余量（已用达到 80% 时转红），底部徽章标出窗口（`5H` = 5 小时、`7D` = 周、`1M` = 月）。*
 
 ## 这个插件是干嘛的
 
 DSH 可以切换很多家模型提供商，但每家的账户状况藏在不同的网站后台。这个插件会解析你在 DSH 里当前选中的模型属于哪家提供商，把那个账户的实时状态卡片放进 DSH 主界面侧边栏底部：
 
 - **账户读数**，按提供商公开的内容分两种形态：
-  - *余额类*（DeepSeek、Moonshot / Kimi、智谱 Z.ai、OpenRouter）公开账户余额，卡片直接显示带币种符号（`¥` / `$`）的余额。
-  - *订阅类*（Kimi For Coding、OpenCode、MiniMax、Claude Code、OpenAI Codex）没有余额可查，只公开用量窗口。卡片按接口返回的窗口各画一个仪表盘——5 小时、周、月，返回几个画几个——显示每份额度还剩多少，已用达到 80% 时剩余弧变红。
+  - *余额类*（DeepSeek、Moonshot / Kimi、智谱 Z.ai、OpenRouter、MiMo）公开账户余额，卡片直接显示带币种符号（`¥` / `$`）的余额。
+  - *订阅类*（Kimi For Coding、OpenCode、MiniMax、MiMo Token Plan、Claude Code、OpenAI Codex）没有余额可查，只公开用量窗口。卡片按接口返回的窗口各画一个仪表盘——5 小时、周、月，返回几个画几个——显示每份额度还剩多少，已用达到 80% 时剩余弧变红。
   - 卡片始终跟随当前选中的模型，切换提供商即切换读数；除凭据外不需要针对某家提供商再做任何配置。
 - **当前模型的单价**。卡片列出输入 / 输入缓存 / 输出的单价，按此刻生效的计费时段取值，币种跟该提供商保持一致。有的提供商按时段计价——DeepSeek 官方峰谷（北京时间周一至周五 09:00–12:00、14:00–18:00 为高峰，夜间、周末、节假日为空闲）或 OpenRouter 的分时定价——卡片会用一枚橙 / 绿指示灯标出当前时段，悬浮可见距下次切换还剩多久。
+## 支持的提供商
+
+匹配按 DSH 的 provider id 进行。未列出的路由可以在**设置 → DeepSeek 用量**里映射到下表中的某个 id。
+
+| Provider id | 显示名称 | 账户读数 | 凭据 |
+| --- | --- | --- | --- |
+| `deepseek-official`、`deepseek` | DeepSeek | 余额 | `DEEPSEEK_API_KEY` |
+| `deepseek-account` | DeepSeek Account | 余额 | DeepSeek 账号登录授权 |
+| `moonshotai` | Moonshot | 余额 | `MOONSHOTAI_API_KEY` / `MOONSHOT_API_KEY` |
+| `zai` | Z.ai (GLM) | 余额 | `ZAI_API_KEY` / `ZAI_CODING_CN_API_KEY` |
+| `openrouter` | OpenRouter | 余额 | `OPENROUTER_API_KEY` |
+| `mimo` | MiMo | 余额 | `MIMO_API_KEY`（`sk-`） |
+| `kimi-coding` | Kimi For Coding | 用量 | `KIMI_CODING_API_KEY` / `KIMI_API_KEY` |
+| `opencode` | OpenCode | 用量 | `OPENCODE_API_KEY` |
+| `opencode-go` | OpenCode Go | 用量 | `OPENCODE_GO_API_KEY` / `OPENCODE_API_KEY` |
+| `minimax` | MiniMax | 用量 | `MINIMAX_API_KEY` |
+| `minimax-cn` | MiniMax (CN) | 用量 | `MINIMAX_CN_API_KEY` / `MINIMAX_API_KEY` |
+| `mimo-token-plan` | MiMo Token Plan | 用量 | `MIMO_TOKEN_PLAN_API_KEY`（`tp-`） |
+| `anthropic` | Claude Code | OAuth 令牌 | `DSH_USAGE_CLAUDE_OAUTH_TOKEN` |
+| `openai-codex`（别名 `chatgpt-codex`） | OpenAI Codex | OAuth 令牌 | `DSH_USAGE_CODEX_OAUTH_TOKEN`，可选 `DSH_USAGE_CODEX_ACCOUNT_ID` |
+
 ## 如何安装和使用
 
-**第 1 步——配置提供商的凭据。** 插件用你给该提供商配的那把 Key 查询：在 DSH 设置的**模型页**填好，或导出为环境变量（`DEEPSEEK_API_KEY`、`MOONSHOTAI_API_KEY`、`ZAI_API_KEY`、`OPENROUTER_API_KEY`、`KIMI_CODING_API_KEY`、`OPENCODE_API_KEY`、`MINIMAX_API_KEY` 等）。`deepseek-account` 是例外：它不需要密钥——在 DSH 里登录 DeepSeek 账号即可，卡片读的是登录留下的授权。
+**第 1 步——配置提供商的凭据。** 插件用你给该提供商配的那把 Key 查询：在 DSH 设置的**模型页**填好，或导出为环境变量（`DEEPSEEK_API_KEY`、`MOONSHOTAI_API_KEY`、`ZAI_API_KEY`、`OPENROUTER_API_KEY`、`KIMI_CODING_API_KEY`、`OPENCODE_API_KEY`、`MINIMAX_API_KEY`、`MIMO_API_KEY`、`MIMO_TOKEN_PLAN_API_KEY` 等）。MiMo 的普通 `sk-` Key 只读按量余额；Token Plan 专属 `tp-` Key 与它不互通，普通 Key 也读不到套餐额度。`deepseek-account` 是例外：它不需要密钥——在 DSH 里登录 DeepSeek 账号即可，卡片读的是登录留下的授权。
 
 **第 2 步——把插件装进 `web` profile：**
 

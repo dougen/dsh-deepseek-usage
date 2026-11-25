@@ -12,6 +12,8 @@ import {
   parseCodexUsage,
   parseDeepSeekBalance,
   parseKimiCodingUsage,
+  parseMiMoBalance,
+  parseMiMoTokenPlan,
   parseMiniMaxRemains,
   parseMoonshotBalance,
   parseOpenCodeUsage,
@@ -27,6 +29,8 @@ test('能力表覆盖三类 provider', () => {
   assert.equal(accountCapabilityOf('moonshotai').kind, 'balance');
   assert.equal(accountCapabilityOf('zai').kind, 'balance');
   assert.equal(accountCapabilityOf('openrouter').kind, 'balance');
+  assert.equal(accountCapabilityOf('mimo').kind, 'balance');
+  assert.equal(accountCapabilityOf('mimo-token-plan').kind, 'usage');
   assert.equal(accountCapabilityOf('kimi-coding').kind, 'usage');
   assert.equal(accountCapabilityOf('opencode-go').kind, 'usage');
   assert.equal(accountCapabilityOf('minimax-cn').kind, 'usage');
@@ -64,6 +68,8 @@ test('候选引用：派生引用在前，适配器原生环境名在后', () =>
   assert.deepEqual(candidateRefsOf('moonshotai'), ['MOONSHOTAI_API_KEY', 'MOONSHOT_API_KEY']);
   assert.deepEqual(candidateRefsOf('minimax-cn'), ['MINIMAX_CN_API_KEY', 'MINIMAX_API_KEY']);
   assert.deepEqual(candidateRefsOf('zai'), ['ZAI_API_KEY', 'ZAI_CODING_CN_API_KEY']);
+  assert.deepEqual(candidateRefsOf('mimo'), ['MIMO_API_KEY']);
+  assert.deepEqual(candidateRefsOf('mimo-token-plan'), ['MIMO_TOKEN_PLAN_API_KEY']);
   // OAuth 与非 balance/usage 类不参与 API Key 解析。
   assert.deepEqual(candidateRefsOf('anthropic'), []);
   assert.deepEqual(candidateRefsOf('google'), []);
@@ -210,6 +216,54 @@ test('OpenRouter：单 Key 无限额时回落总余额', () => {
   assert.equal(credits.ok, true);
   assert.equal(credits.balance.total, 74.75);
   assert.equal(parseOpenRouterCredits({ data: { total_credits: 10 } }).code, 'empty');
+});
+
+test('MiMo 余额：字符串金额、不可用状态与缺失字段', () => {
+  const ok = parseMiMoBalance({
+    object: 'balance',
+    is_available: true,
+    balance_infos: [{ currency: 'CNY', total_available: '500.50', cash_balance: '100.50' }],
+  });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.balance.total, 500.5);
+  assert.equal(ok.balance.currency, 'CNY');
+  assert.equal(ok.balance.isAvailable, true);
+
+  const down = parseMiMoBalance({ is_available: false, balance_infos: [{ currency: 'CNY', total_available: '1.00' }] });
+  assert.equal(down.code, 'unavailable', '账户不可用优先于金额');
+
+  assert.equal(parseMiMoBalance({ is_available: true }).code, 'shape');
+  assert.equal(parseMiMoBalance({ is_available: true, balance_infos: [] }).code, 'empty');
+  assert.equal(parseMiMoBalance({ is_available: true, balance_infos: [{ currency: 'CNY' }] }).code, 'empty');
+  assert.equal(parseMiMoBalance({}).code, 'shape');
+});
+
+test('MiMo Token Plan：周期积分换算已用百分比，重置时间按 UTC 解析', () => {
+  const out = parseMiMoTokenPlan({
+    object: 'token_plan',
+    plan_code: 'pro',
+    period: { start_at: '2026-09-21 23:59:59', end_at: '2027-09-21 23:59:59' },
+    quota: { total_credits: 10000000, used_credits: 1500000, remaining_credits: 8500000 },
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.balance, null);
+  assert.equal(out.usage.plan, 'pro');
+  assert.equal(out.usage.windows.length, 1);
+  assert.equal(out.usage.windows[0].key, 'cycle');
+  assert.equal(out.usage.windows[0].percent, 15);
+  assert.equal(out.usage.windows[0].resetsAt, Date.parse('2027-09-21T23:59:59Z'));
+
+  // 字符串计数照常换算；缺周期时重置时间为 null；总数非法时不猜。
+  const stringCounts = parseMiMoTokenPlan({
+    object: 'token_plan',
+    quota: { total_credits: '100', used_credits: '25' },
+  });
+  assert.equal(stringCounts.usage.windows[0].percent, 25);
+  assert.equal(stringCounts.usage.windows[0].resetsAt, null);
+  assert.equal(parseMiMoTokenPlan({ object: 'token_plan', quota: { total_credits: 0, used_credits: 1 } }).code, 'empty');
+  assert.equal(parseMiMoTokenPlan({ object: 'token_plan', quota: {} }).code, 'empty');
+  assert.equal(parseMiMoTokenPlan({ object: 'balance', quota: { total_credits: 10, used_credits: 1 } }).code, 'shape');
+  assert.equal(parseMiMoTokenPlan({}).code, 'shape');
 });
 
 test('Kimi Coding 用量：300 分钟映射 5h，7 天映射 7d', () => {
@@ -508,6 +562,25 @@ test('取数：OpenRouter 单 Key 无限额时回落总余额', async () => {
   assert.equal(out.ok, true);
   assert.equal(out.balance.total, 30);
   assert.equal(calls.length, 2);
+});
+
+test('取数：MiMo 余额与 Token Plan 各走官方端点', async () => {
+  const { impl, calls } = stubFetch({
+    '/v1/platform/balance': { body: { object: 'balance', is_available: true, balance_infos: [{ currency: 'CNY', total_available: '12.34' }] } },
+    '/v1/platform/token_plan': { body: { object: 'token_plan', quota: { total_credits: 100, used_credits: 40 } } },
+  });
+  const reader = makeAccountReader({ fetchImpl: impl });
+  const balance = await reader.read(accountCapabilityOf('mimo'), 'sk-mimo');
+  assert.equal(balance.ok, true);
+  assert.equal(balance.balance.total, 12.34);
+  assert.equal(calls[0].init.headers.Authorization, 'Bearer sk-mimo');
+  assert.match(calls[0].url, /api\.xiaomimimo\.com\/v1\/platform\/balance$/);
+
+  const plan = await reader.read(accountCapabilityOf('mimo-token-plan'), 'tp-mimo');
+  assert.equal(plan.ok, true);
+  assert.equal(plan.usage.windows[0].percent, 40);
+  assert.equal(calls[1].init.headers.Authorization, 'Bearer tp-mimo');
+  assert.match(calls[1].url, /token-plan-cn\.xiaomimimo\.com\/v1\/platform\/token_plan$/);
 });
 
 test('取数：OpenCode 用量接口同时带 Authorization 与 x-api-key', async () => {

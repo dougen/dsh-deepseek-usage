@@ -37,6 +37,25 @@ test('只有官方路由上的官方模型计价', () => {
   }
 });
 
+test('MiMo 按量路由取国内站实时价，套餐路由不显示 token 单价', () => {
+  const pro = unitAt('mimo-v2.6-pro', at(PEAK), 'mimo');
+  assert.equal(pro.known, true);
+  assert.equal(pro.currency, 'CNY');
+  assert.equal(pro.input, 3);
+  assert.equal(pro.cacheRead, 0.025);
+  assert.equal(pro.output, 6);
+  assert.equal(pro.window, null, 'MiMo 当前快照没有分时段价');
+
+  const flash = unitAt('mimo-v2.6-flash', at(PEAK), 'mimo');
+  assert.equal(flash.input, 1);
+  assert.equal(flash.cacheRead, 0.02);
+  assert.equal(flash.output, 2);
+  assert.equal(unitAt('mimo-v2.6-pro-ultraspeed', at(PEAK), 'mimo').input, 30);
+
+  assert.equal(unitAt('mimo-v2.6-pro', at(PEAK), 'mimo-token-plan').known, false);
+  assert.equal(unitAt('mimo-v2.6-pro', at(PEAK), 'openrouter').known, false);
+});
+
 test('家族词不再被当成官方模型（新模型不按上代价格计价）', () => {
   for (const model of ['deepseek-v5-pro', 'deepseek-prompt-helper', 'deepseek-router-proxy']) {
     const unit = unitAt(model, at(PEAK), 'deepseek-official');
