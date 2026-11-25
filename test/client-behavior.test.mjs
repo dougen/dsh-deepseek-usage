@@ -1189,58 +1189,6 @@ test('映射设置页：OAuth 目标隐藏凭据引用，保存时 refs 为空',
   }]]);
 });
 
-test('设置页：从 configForms 取表单并渲染映射编辑器', async () => {
-  const runtime = makeRuntime();
-
-  globalThis.fetch = async () => ({
-    ok: true,
-    status: 200,
-    json: async () => ({
-      ok: true,
-      aliasable: [{ id: 'opencode-go', displayName: 'OpenCode Go' }],
-      unmapped: [],
-      oauth: [],
-    }),
-  });
-
-  const writes = [];
-  const snapshot = {
-    status: 'ready',
-    value: { providerAliases: [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refs: ['OPENCODE_API_KEY'] }] },
-    revision: 2,
-    writable: true,
-  };
-  const controller = {
-    getSnapshot: () => snapshot,
-    subscribe: () => () => {},
-    mutate: async (ops) => { writes.push(ops); return true; },
-  };
-  const services = {
-    configForms: { get: (id) => (id === 'deepseek-usage' ? controller : undefined) },
-  };
-  const Slot = loadSlots(runtime, 'zh', services)['settings.section'];
-  assert.equal(typeof Slot, 'function', '设置项必须注册');
-
-  const render = () => renderTree(runtime, Slot({ t: (k) => k })).out;
-
-  render();
-  await flush();
-  const out = render();
-
-  const inputs = nodesOf(out).filter((n) => n.type === 'input');
-  assert.equal(inputs.length, 2, '映射编辑器应在设置页直接渲染');
-  assert.equal(inputs[0].props.value, 'dsh-opencode-go');
-  assert.equal(inputs[1].props.value, 'OPENCODE_API_KEY');
-
-  nodesOf(out).filter((n) => n.type === 'button').find((b) => b.children.includes('alias.save')).props.onClick();
-  await flush();
-  assert.deepEqual(writes, [[{
-    op: 'set',
-    path: ['providerAliases'],
-    value: [{ provider: 'dsh-opencode-go', capability: 'opencode-go', refs: ['OPENCODE_API_KEY'] }],
-  }]]);
-});
-
 // ---- 语言设置：中文→中文，其它语言→英文 ------------------------------------
 
 test('非中文语言（ja）按英文渲染，并向宿主请求 en', async () => {

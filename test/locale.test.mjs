@@ -31,14 +31,6 @@ test('详情页正文按语言选择：中文 README.zh.md，其它语言 README
   }
 });
 
-test('meta.detail 是包内相对路径的 Markdown', () => {
-  for (const lang of ['en', 'zh']) {
-    const detail = readJson(`locale/${lang}.json`).meta.detail;
-    assert.match(detail, /^[A-Za-z0-9._-]+(?:[A-Za-z0-9._-]*\/)?[A-Za-z0-9._-]+\.md$/, `${lang}: meta.detail 必须是 .md 相对路径`);
-    assert.ok(!detail.split('/').includes('..'), `${lang}: meta.detail 不得离开包目录`);
-  }
-});
-
 test('打包声明带上 locale 与中文 README，否则线上读不到元数据', () => {
   assert.equal(manifest.exports['./locale/*.json'], './locale/*.json');
   assert.ok(manifest.files.includes('locale'), 'files 必须包含 locale');

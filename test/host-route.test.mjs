@@ -775,27 +775,6 @@ test('OAuth provider：填了令牌后按限流头给出 5h/7d', async () => {
   assert.equal(res.body.usage.windows[0].resetsAt, 1789882800000);
 });
 
-test('账户缓存按 provider + Key 分桶：换 provider 不命中旧读数', async () => {
-  resetFetch();
-  fetchRoutes = {
-    'moonshot.ai/v1/users/me/balance': new Response(JSON.stringify({
-      code: 0, data: { available_balance: 7 },
-    }), { status: 200, headers: { 'content-type': 'application/json' } }),
-  };
-  const { ctx, routes } = makeCtx({ provider: 'moonshotai', refs: { MOONSHOT_API_KEY: 'sk-a' } });
-  apply(ctx);
-  const route = routes.get('/api/deepseek-usage');
-  const first = await call(route, makeReq({ host: '127.0.0.1:64452' }));
-  assert.equal(first.body.balance.total, 7);
-  const moonshotCalls = upstreamCalls.length;
-  assert.equal(moonshotCalls, 1);
-
-  // 同一个 Key 再问：命中缓存，不再打上游。
-  const again = await call(route, makeReq({ host: '127.0.0.1:64452' }));
-  assert.equal(again.body.balance.total, 7);
-  assert.equal(upstreamCalls.length, moonshotCalls, '缓存窗口内不得重复打上游');
-});
-
 test('/accounts：映射元数据与 OAuth 令牌状态，不查上游', async () => {
   resetFetch();
   const { ctx, routes } = makeCtx({

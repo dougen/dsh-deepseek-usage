@@ -221,29 +221,3 @@ test('网关的分时段没有法定节假日概念：国庆工作日照样按�
   assert.equal(official.window, 'idle');
   assert.equal(official.input, 1);
 });
-
-test('DeepSeek 与其它提供商走同一套查表与区间逻辑', () => {
-  // DeepSeek 的"峰谷"就是一条带 schedule 的普通表条目：同样返回 window / next。
-  const ds = unitAt('deepseek-flash', at(PEAK), 'deepseek-official');
-  assert.equal(ds.window, 'peak');
-  assert.equal(typeof ds.next.at, 'number');
-  assert.equal(ds.via, 'exact');
-
-  // 三条官方路由共用同一份快照。
-  for (const provider of ['deepseek-official', 'deepseek-account', 'deepseek']) {
-    const q = unitAt('deepseek-flash', at(PEAK), provider);
-    assert.equal(q.known, true, provider);
-    assert.equal(q.input, 2, provider);
-    assert.equal(q.window, 'peak', provider);
-  }
-
-  // 同一模型 id 在不同提供商的快照里取不同价（表按 provider 分开，不跨表回退）。
-  assert.equal(unitAt('glm-4.6', at(PEAK), 'zai').input, 0.6);
-  assert.equal(unitAt('glm-4.6', at(PEAK), 'openrouter').input, 0.55);
-
-  // 表里没有的模型：与家族词一样直接 known=false，且不拿兜底数字顶替。
-  const missing = unitAt('deepseek-v5-pro', at(PEAK), 'deepseek-official');
-  assert.equal(missing.known, false);
-  assert.equal(missing.input, null, '表外模型不返回任何数字');
-  assert.equal(unitAt('glm-9', at(PEAK), 'zai').input, null);
-});

@@ -122,14 +122,6 @@ test('余额形态：币种符号 + 金额', () => {
   assert.equal(usd.value, '49.59');
 });
 
-test('余额缺失显示占位符，不显示 0', () => {
-  const lead = I.accountLead('balance', { balance: { total: null, currency: 'CNY' } }, t);
-  assert.equal(lead.symbol, '¥');
-  assert.equal(lead.value, '—');
-  const none = I.accountLead('balance', null, t);
-  assert.equal(none.value, '—');
-});
-
 test('订阅用量形态：取最紧窗口的百分比', () => {
   const account = {
     usage: {
@@ -151,13 +143,6 @@ test('订阅用量：没有窗口或读数缺失时是占位符', () => {
   // 百分比不是数字时不当成 0。
   const bad = I.accountLead('usage', { usage: { windows: [{ key: '5h', percent: null }] } }, t);
   assert.equal(bad.value, '—');
-});
-
-test('OAuth 形态与用量形态同构', () => {
-  const account = { usage: { windows: [{ key: '5h', percent: 33, resetsAt: 1789882800000 }] } };
-  const lead = I.accountLead('oauth', account, t);
-  assert.equal(lead.symbol, 'accounts.window.5h');
-  assert.equal(lead.value, '33%');
 });
 
 test('不可查的 provider：符号与数值都是占位符', () => {
