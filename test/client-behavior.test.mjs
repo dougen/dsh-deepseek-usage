@@ -596,6 +596,7 @@ test('订阅用量形态：指示灯与仪表盘弧共用同一套低饱和度�
   const GREEN = 'color-mix(in srgb, var(--dsw-alias-state-success-primary, rgb(34,160,80)) 55%, #808080)';
   const AMBER = 'color-mix(in srgb, var(--dsw-alias-state-warn-primary, rgb(230,120,0)) 55%, #808080)';
   const RED = 'color-mix(in srgb, var(--dsw-alias-state-error-primary, rgb(200,40,40)) 55%, #808080)';
+  const USED = 'color-mix(in srgb, var(--dsw-alias-label-tertiary, #81858c) 48%, var(--dsw-alias-bg-layer-1, #fff))';
 
   /** 渲染一次并取出指示灯颜色与两条仪表盘弧色（已用 84% → 剩余弧变红）。 */
   const colorsOf = async (peak) => {
@@ -628,15 +629,17 @@ test('订阅用量形态：指示灯与仪表盘弧共用同一套低饱和度�
     const dot = nodes.find((n) => isDotNode(n));
     // 圆点本体是 dot 里的 SVG 圆，颜色写在 circle 的 style.fill 上。
     const disc = dot && dot.children && dot.children[0] && dot.children[0].children;
-    const arcs = nodes
+    // 每条弧有两条 circle：剩余弧是低饱和强调色，已用弧是浅灰，分开取。
+    const strokes = nodes
       .filter((n) => n.type === 'circle' && n.props && n.props.style && typeof n.props.style.stroke === 'string')
       .map((n) => n.props.style.stroke);
-    return { dot: disc && disc[0] && disc[0].props.style.fill, arcs };
+    return { dot: disc && disc[0] && disc[0].props.style.fill, arcs: strokes.filter((c) => c !== USED), strokes };
   };
 
   const idle = await colorsOf(false);
   assert.equal(idle.dot, GREEN, `空闲时指示灯应与仪表盘剩余弧同色，实际 ${idle.dot}`);
   assert.deepEqual(idle.arcs, [GREEN, RED], `仪表盘弧应为低饱和度绿/红，实际 ${JSON.stringify(idle.arcs)}`);
+  assert.deepEqual(idle.strokes, [USED, GREEN, USED, RED], '剩余弧应绘制在已用弧之上');
 
   const peak = await colorsOf(true);
   assert.equal(peak.dot, AMBER, `高峰时指示灯应为低饱和度黄色，实际 ${peak.dot}`);
