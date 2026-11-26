@@ -271,9 +271,14 @@ test('GLM Coding Plan 个人套餐额度：接口只返回的池子才画，认�
 });
 
 test('GLM Coding Plan 个人套餐额度：没套餐是 noPlan，其它失败信封是 shape，成功但没有池子是 empty', () => {
-  // 接口对「没有套餐」仍回 HTTP 200，只是信封是失败的。
+  // 接口对「没有套餐」仍回 HTTP 200，只是信封是失败的；兼容空格和大小写。
   assert.equal(parseZaiCodingQuota({ code: 400, msg: '当前用户不存在coding plan', success: false }).code, 'noPlan');
-  assert.equal(parseZaiCodingQuota({ code: 401, msg: '用户没有资格访问' }).code, 'noPlan');
+  assert.equal(parseZaiCodingQuota({ code: 400, msg: '当前用户不存在 Coding Plan', success: false }).code, 'noPlan');
+  assert.equal(parseZaiCodingQuota({ code: 404, msg: 'No Coding Plan found', success: false }).code, 'noPlan');
+  assert.equal(parseZaiCodingQuota({ code: 403, msg: 'No coding plan permission', success: false }).code, 'shape');
+  assert.equal(parseZaiCodingQuota({ code: 403, msg: 'No Coding Plan access permission', success: false }).code, 'shape');
+  assert.equal(parseZaiCodingQuota({ code: 401, msg: '用户没有资格访问' }).code, 'shape');
+  assert.equal(parseZaiCodingQuota({ code: 403, msg: '没有权限访问该接口' }).code, 'shape');
   assert.equal(parseZaiCodingQuota({ code: 401, msg: '令牌已过期或失效', success: false }).code, 'shape');
   assert.equal(parseZaiCodingQuota({ success: false }).code, 'shape');
   assert.equal(parseZaiCodingQuota([]).code, 'shape');
@@ -719,6 +724,58 @@ test('取数：GLM Coding Plan 个人套餐国内主域失败时回落 bigmodel.
   assert.equal(denied.calls.length, 2, '主域失败后应尝试第二个 host');
 });
 
+test('取数：GLM Coding Plan 个人套餐国内网络异常和超时也回落 bigmodel.cn', async () => {
+  const quota = {
+    code: 200,
+    success: true,
+    data: { limits: [{ type: 'TOKENS_LIMIT', unit: 6, number: 1, percentage: 40 }] },
+  };
+  const network = stubFetch({
+    'open.bigmodel.cn': () => { throw new TypeError('connect ECONNREFUSED'); },
+    'bigmodel.cn/api/monitor': { body: quota },
+  });
+  const networkOut = await makeAccountReader({ fetchImpl: network.impl }).read(accountCapabilityOf('zai-coding-cn'), 'k');
+  assert.equal(networkOut.ok, true);
+  assert.deepEqual(networkOut.usage.windows.map((w) => w.key), ['7d']);
+  assert.equal(network.calls.length, 2);
+
+  const timeout = stubFetch({
+    'open.bigmodel.cn': () => { const error = new Error('timeout'); error.name = 'TimeoutError'; throw error; },
+    'bigmodel.cn/api/monitor': { body: quota },
+  });
+  const timeoutOut = await makeAccountReader({ fetchImpl: timeout.impl }).read(accountCapabilityOf('zai-coding-cn'), 'k');
+  assert.equal(timeoutOut.ok, true);
+  assert.deepEqual(timeoutOut.usage.windows.map((w) => w.key), ['7d']);
+  assert.equal(timeout.calls.length, 2);
+
+  const bothNetwork = stubFetch({
+    'open.bigmodel.cn': () => { throw new TypeError('connect ECONNREFUSED'); },
+    'bigmodel.cn/api/monitor': () => { throw new TypeError('connect ECONNREFUSED'); },
+  });
+  const bothNetworkOut = await makeAccountReader({ fetchImpl: bothNetwork.impl }).read(accountCapabilityOf('zai-coding-cn'), 'k');
+  assert.equal(bothNetworkOut.code, 'network');
+  assert.equal(bothNetwork.calls.length, 2);
+
+  const bothTimeout = stubFetch({
+    'open.bigmodel.cn': () => { const error = new Error('timeout'); error.name = 'TimeoutError'; throw error; },
+    'bigmodel.cn/api/monitor': () => { const error = new Error('timeout'); error.name = 'TimeoutError'; throw error; },
+  });
+  const bothTimeoutOut = await makeAccountReader({ fetchImpl: bothTimeout.impl }).read(accountCapabilityOf('zai-coding-cn'), 'k');
+  assert.equal(bothTimeoutOut.code, 'timeout');
+  assert.equal(bothTimeout.calls.length, 2);
+});
+
+test('取数：GLM Coding Plan noPlan 不被 fallback 的认证错误覆盖', async () => {
+  const { impl, calls } = stubFetch({
+    'open.bigmodel.cn': { body: { code: 400, msg: '当前用户不存在 Coding Plan', success: false } },
+    'bigmodel.cn/api/monitor': { status: 401, body: { code: 401, msg: '令牌已过期或失效', success: false } },
+  });
+  const out = await makeAccountReader({ fetchImpl: impl }).read(accountCapabilityOf('zai-coding-cn'), 'k');
+  assert.equal(out.ok, false);
+  assert.equal(out.code, 'noPlan');
+  assert.equal(calls.length, 1, 'noPlan 是账号级结论，不再请求 fallback');
+});
+
 test('取数：Claude 403 时回落最小推理请求读限流头', async () => {
   const { impl, calls } = stubFetch({
     '/api/oauth/usage': { status: 403, body: { error: { type: 'permission_error' } } },
@@ -766,13 +823,17 @@ test('取数：Codex 带 ChatGPT-Account-Id 头', async () => {
 });
 
 test('取数：超时与网络错误分类', async () => {
-  const timeoutReader = makeAccountReader({ fetchImpl: async () => { const e = new Error('timeout'); e.name = 'TimeoutError'; throw e; } });
+  let timeoutCalls = 0;
+  const timeoutReader = makeAccountReader({ fetchImpl: async () => { timeoutCalls++; const e = new Error('timeout'); e.name = 'TimeoutError'; throw e; } });
   const timed = await timeoutReader.read(accountCapabilityOf('moonshotai'), 'sk');
   assert.equal(timed.code, 'timeout');
+  assert.equal(timeoutCalls, 1, '未声明网络回落的能力不尝试第二个 host');
 
-  const networkReader = makeAccountReader({ fetchImpl: async () => { throw new Error('connect ECONNREFUSED'); } });
+  let networkCalls = 0;
+  const networkReader = makeAccountReader({ fetchImpl: async () => { networkCalls++; throw new Error('connect ECONNREFUSED'); } });
   const net = await networkReader.read(accountCapabilityOf('moonshotai'), 'sk');
   assert.equal(net.code, 'network');
+  assert.equal(networkCalls, 1, '未声明网络回落的能力不尝试第二个 host');
 });
 
 test('取数：超限响应体按 shape 处理', async () => {

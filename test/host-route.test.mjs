@@ -1249,7 +1249,7 @@ test('Z.ai 国内 Coding Plan 路由：旧配置里指向 zai 余额的映射不
 test('Z.ai Coding Plan：没套餐与没配 Key 各给对应的文案', async () => {
   resetFetch();
   // 两次请求（中/英）都要读到响应体：桩每次给一个新的 Response，不能复用同一个。
-  const noPlanBody = () => JSON.stringify({ code: 400, msg: '当前用户不存在coding plan', success: false });
+  const noPlanBody = () => JSON.stringify({ code: 400, msg: '当前用户不存在 Coding Plan', success: false });
   fetchRoutes = {
     'open.bigmodel.cn': () => new Response(noPlanBody(), { status: 200, headers: { 'content-type': 'application/json' } }),
     'bigmodel.cn/api/monitor': () => new Response(noPlanBody(), { status: 200, headers: { 'content-type': 'application/json' } }),
@@ -1264,6 +1264,7 @@ test('Z.ai Coding Plan：没套餐与没配 Key 各给对应的文案', async ()
   // 英文界面。
   const en = await call(noPlan.routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }, '/api/deepseek-usage?lang=en'));
   assert.deepEqual(en.body.errors, ['This API key has no active Coding Plan']);
+  assert.equal(upstreamCalls.length, 2, '中英各请求一次，noPlan 不触发 fallback');
 
   resetFetch();
   const noKey = makeCtx({ provider: 'zai-coding-cn', model: 'glm-5.4', refs: {} });
