@@ -1174,6 +1174,106 @@ test('用户映射：第三方 provider 路由按映射的账户口径查询', a
   );
 });
 
+/** GLM Coding Plan 的 quota 响应（BigModel / Z.ai 同一份结构）。 */
+const ZAI_QUOTA = (limits, level = 'lite') => JSON.stringify({
+  code: 200,
+  msg: '操作成功',
+  success: true,
+  data: { level, limits },
+});
+
+test('Z.ai 国内 Coding Plan 路由：读套餐额度窗口，头是裸 Key，不再读按量余额', async () => {
+  resetFetch();
+  const seen = [];
+  fetchRoutes = {
+    '/api/monitor/usage/quota/limit': (url, init) => {
+      seen.push({ url: String(url), headers: init.headers });
+      return new Response(ZAI_QUOTA([
+        { type: 'TOKENS_LIMIT', unit: 3, number: 5, percentage: 1, nextResetTime: 1778753640304 },
+        { type: 'TIME_LIMIT', unit: 5, number: 1, usage: 100, currentValue: 4, remaining: 96, percentage: 4, nextResetTime: 1781345721976 },
+      ]), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+    // 旧口径（按量余额）：这次请求不该碰它。
+    '/api/biz/account/query-customer-account-report': new Response(JSON.stringify({ success: true, data: { balance: 42.5 } }), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }),
+  };
+  const { ctx, routes } = makeCtx({
+    provider: 'zai-coding-cn',
+    model: 'glm-5.4',
+    refs: { ZAI_CODING_CN_API_KEY: 'id.secret' },
+  });
+  apply(ctx);
+  const res = await call(routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }));
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.provider, {
+    id: 'zai-coding-cn', displayName: 'Z.ai Coding Plan (CN)', kind: 'usage', reason: null, via: 'exact',
+  });
+  assert.equal(res.body.balance.total, null, '订阅制没有余额');
+  assert.equal(res.body.usage.plan, 'GLM Coding Lite');
+  assert.deepEqual(res.body.usage.windows, [
+    { key: '5h', percent: 1, resetsAt: 1778753640304 },
+    { key: 'mcp', percent: 4, resetsAt: 1781345721976 },
+  ]);
+  assert.deepEqual(res.body.errors, []);
+  assert.equal(res.body.pricing.known, false, '订阅制没有 token 单价');
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].url, 'https://open.bigmodel.cn/api/monitor/usage/quota/limit');
+  assert.equal(seen[0].headers.Authorization, 'id.secret', '与 ZCode 一致：发裸 Key');
+  assert.equal(seen[0].headers['x-api-key'], undefined);
+  assert.equal(
+    upstreamCalls.some((url) => url.includes('query-customer-account-report')),
+    false,
+    '内置路由优先，不该再打按量余额接口',
+  );
+});
+
+test('Z.ai 国内 Coding Plan 路由：旧配置里指向 zai 余额的映射不再生效', async () => {
+  resetFetch();
+  fetchRoutes = { '/api/monitor/usage/quota/limit': new Response(ZAI_QUOTA([{ type: 'TOKENS_LIMIT', unit: 3, number: 5, percentage: 9 }]), {
+    status: 200, headers: { 'content-type': 'application/json' },
+  }) };
+  const { ctx, routes } = makeCtx({
+    provider: 'zai-coding-cn',
+    model: 'glm-5.4',
+    refs: { ZAI_CODING_CN_API_KEY: 'id.secret-legacy' },
+  });
+  apply(ctx, { providerAliases: [{ provider: 'zai-coding-cn', capability: 'zai', refs: [] }] });
+  const res = await call(routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }));
+  assert.equal(res.body.provider.via, 'exact');
+  assert.equal(res.body.provider.kind, 'usage');
+  assert.deepEqual(res.body.usage.windows.map((w) => w.key), ['5h']);
+  assert.deepEqual(res.body.errors, []);
+});
+
+test('Z.ai Coding Plan：没套餐与没配 Key 各给对应的文案', async () => {
+  resetFetch();
+  // 两次请求（中/英）都要读到响应体：桩每次给一个新的 Response，不能复用同一个。
+  const noPlanBody = () => JSON.stringify({ code: 400, msg: '当前用户不存在 Coding Plan', success: false });
+  fetchRoutes = {
+    'open.bigmodel.cn': () => new Response(noPlanBody(), { status: 200, headers: { 'content-type': 'application/json' } }),
+    'bigmodel.cn/api/monitor': () => new Response(noPlanBody(), { status: 200, headers: { 'content-type': 'application/json' } }),
+  };
+  const noPlan = makeCtx({ provider: 'zai-coding-cn', model: 'glm-5.4', refs: { ZAI_CODING_CN_API_KEY: 'id.secret-noplan' } });
+  apply(noPlan.ctx);
+  const res = await call(noPlan.routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }));
+  assert.equal(res.body.provider.kind, 'usage');
+  assert.equal(res.body.usage, null);
+  assert.deepEqual(res.body.errors, ['当前 API Key 没有有效的 Coding Plan']);
+
+  // 英文界面。
+  const en = await call(noPlan.routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }, '/api/deepseek-usage?lang=en'));
+  assert.deepEqual(en.body.errors, ['This API key has no active Coding Plan']);
+  assert.equal(upstreamCalls.length, 2, '中英各请求一次，noPlan 不触发 fallback');
+
+  resetFetch();
+  const noKey = makeCtx({ provider: 'zai-coding-cn', model: 'glm-5.4', refs: {} });
+  apply(noKey.ctx);
+  const missing = await call(noKey.routes.get('/api/deepseek-usage'), makeReq({ host: '127.0.0.1:64452' }));
+  assert.deepEqual(missing.body.errors, ['未配置 ZAI_CODING_CN_API_KEY']);
+  assert.equal(upstreamCalls.length, 0, '没有 Key 不该打上游');
+});
+
 test('没有映射时第三方 provider 仍显示不支持，不猜端点', async () => {
   resetFetch();
   const { ctx, routes } = makeCtx({ provider: 'dsh-opencode-go', model: 'deepseek-v4.1-flash' });

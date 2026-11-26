@@ -13,6 +13,9 @@ test('可映射集合含 balance / usage / OAuth 路由，排除账号登录与�
   assert.ok(ids.includes('minimax-cn'));
   assert.ok(ids.includes('mimo'));
   assert.ok(ids.includes('mimo-token-plan'));
+  // Z.ai Coding Plan：国内是 DSH 内置路由，海外那条只作为映射目标。
+  assert.ok(ids.includes('zai-coding-cn'));
+  assert.ok(ids.includes('zai-coding'));
   // OAuth 目标：凭据是订阅令牌，由插件页单独写入凭据服务。
   assert.ok(ids.includes('anthropic'));
   assert.ok(ids.includes('openai-codex'));
@@ -95,6 +98,27 @@ test('识别顺序：精确 id 永远优先，映射不能覆盖内置路由', (
   assert.equal(exact.via, 'exact');
   assert.equal(exact.capabilityId, 'opencode-go');
   assert.deepEqual(exact.refs, candidateRefsOf('opencode-go'));
+});
+
+test('Z.ai Coding Plan 国内路由：现在自己是内置能力，旧配置里指向按量余额的映射不再生效', () => {
+  // 这个版本之前，国内 Coding Plan 路由只能靠映射到 `zai` 出数，读到的是按量余额
+  // （按量 Key 与套餐 Key 不通用，常常是 empty）。现在路由本身就在能力表里：精确 id
+  // 优先，同一条映射被忽略，卡片改读套餐额度。
+  const { aliases, warnings } = normalizeAliases([{ provider: 'zai-coding-cn', capability: 'zai', refs: [] }]);
+  assert.deepEqual(warnings, []);
+  const resolved = createProviderResolver(aliases).resolve('zai-coding-cn');
+  assert.equal(resolved.via, 'exact');
+  assert.equal(resolved.capabilityId, 'zai-coding-cn');
+  assert.equal(resolved.entry.kind, 'usage');
+  assert.deepEqual(resolved.refs, ['ZAI_CODING_CN_API_KEY']);
+
+  // 海外没有同名内置路由：自定义路由仍可映射到 `zai-coding`（引用 = 派生 → 能力表默认）。
+  const mapped = createProviderResolver(
+    normalizeAliases([{ provider: 'zai-coding-plan', capability: 'zai-coding' }]).aliases,
+  ).resolve('zai-coding-plan');
+  assert.equal(mapped.via, 'alias');
+  assert.equal(mapped.capabilityId, 'zai-coding');
+  assert.deepEqual(mapped.refs, ['ZAI_CODING_PLAN_API_KEY', 'ZAI_API_KEY']);
 });
 
 test('映射解析：refs 顺序为 显式 → 派生 → 能力表默认', () => {
