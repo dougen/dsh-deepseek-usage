@@ -73,12 +73,12 @@ API Key 读不到这两种订阅——它们走 OAuth 令牌。当 DSH 检测到
 </details>
 
 <details>
-<summary>使用 Z.ai GLM Coding Plan（国内 / 海外）</summary>
+<summary>使用 Z.ai GLM Coding Plan 个人账号（国内 / 海外）</summary>
 
-DSH 内置的 `zai-coding-cn` 路由就是智谱 BigModel 的 Coding Plan（Key 为 `ZAI_CODING_CN_API_KEY`）。插件读的是套餐额度接口 `GET https://open.bigmodel.cn/api/monitor/usage/quota/limit`（主域失败时回落 `bigmodel.cn`）：5 小时 Prompt 池、每周额度（套餐有时才返回）、MCP / 工具月额度各画一个仪表盘，已用达到 80% 时变红。按量余额接口读不到这些额度，套餐 Key 也读不到按量余额——两者不通用。
+DSH 内置的 `zai-coding-cn` 路由就是智谱 BigModel 的个人 Coding Plan（Key 为 `ZAI_CODING_CN_API_KEY`）。插件读的是套餐额度接口 `GET https://open.bigmodel.cn/api/monitor/usage/quota/limit`（主域失败时回落 `bigmodel.cn`）：5 小时 Prompt 池、每周额度（套餐有时才返回）、MCP / 工具月额度各画一个仪表盘，已用达到 80% 时变红。按量余额接口读不到这些额度，套餐 Key 也读不到按量余额——两者不通用。
 
 - 之前的版本要把 `zai-coding-cn` 映射到 `zai` 才能出数，读到的是按量余额；现在这条路由已是内置能力，旧映射会被忽略（不报错），可以删掉。
-- 海外 Z.ai Coding Plan 在 DSH 里没有同名内置路由：把自定义路由映射到 `zai-coding`（Key `ZAI_API_KEY`），读的是 `https://api.z.ai` 上的同一接口。
+- 海外 Z.ai 个人 Coding Plan 在 DSH 里没有同名内置路由：把自定义路由映射到 `zai-coding`（Key `ZAI_API_KEY`），读的是 `https://api.z.ai` 上的同一接口。
 - 卡片提示「当前 API Key 没有有效的 Coding Plan」时，说明这把 Key 是按量 Key，或者套餐未生效 / 已到期。
 </details>
 

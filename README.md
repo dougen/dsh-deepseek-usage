@@ -73,12 +73,12 @@ Tokens are stored through DSH's credential service (`~/.dsh/.credentials.yaml`) 
 </details>
 
 <details>
-<summary>Using a Z.ai GLM Coding Plan (China / international)</summary>
+<summary>Using a Z.ai GLM Coding Plan personal account (China / international)</summary>
 
-DSH's built-in `zai-coding-cn` route *is* Zhipu BigModel's Coding Plan (key `ZAI_CODING_CN_API_KEY`). The plugin reads the plan's quota endpoint `GET https://open.bigmodel.cn/api/monitor/usage/quota/limit` (falling back to `bigmodel.cn`): one gauge each for the 5-hour prompt pool, the weekly quota (only when the plan returns one) and the monthly MCP / tool-call quota, turning red once 80% is used. The pay-as-you-go balance endpoint cannot see these quotas, and a plan key cannot read the balance — the two are not interchangeable.
+DSH's built-in `zai-coding-cn` route *is* Zhipu BigModel's personal Coding Plan (key `ZAI_CODING_CN_API_KEY`). The plugin reads the plan's quota endpoint `GET https://open.bigmodel.cn/api/monitor/usage/quota/limit` (falling back to `bigmodel.cn`): one gauge each for the 5-hour prompt pool, the weekly quota (only when the plan returns one) and the monthly MCP / tool-call quota, turning red once 80% is used. The pay-as-you-go balance endpoint cannot see these quotas, and a plan key cannot read the balance — the two are not interchangeable.
 
 - Earlier versions needed an alias `zai-coding-cn → zai` to show anything, and that read the pay-as-you-go balance. The route is now built in; the old alias is simply ignored (no warning), so you can remove it.
-- The international Z.ai Coding Plan has no built-in DSH route with that id: alias your custom route to `zai-coding` (key `ZAI_API_KEY`); it reads the same endpoint on `https://api.z.ai`.
+- The international Z.ai personal Coding Plan has no built-in DSH route with that id: alias your custom route to `zai-coding` (key `ZAI_API_KEY`); it reads the same endpoint on `https://api.z.ai`.
 - When the card says "This API key has no active Coding Plan", the key is a pay-as-you-go key or the plan is not active / has expired.
 </details>
 

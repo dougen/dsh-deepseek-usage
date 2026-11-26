@@ -210,7 +210,7 @@ test('智谱余额：success false 是 shape，空 data 是 empty', () => {
   assert.equal(parseZaiBalance({}).code, 'shape');
 });
 
-test('GLM Coding Plan 额度：三类池子按 type/unit/number 归到窗口，percentage 是已用', () => {
+test('GLM Coding Plan 个人套餐额度：三类池子按 type/unit/number 归到窗口，percentage 是已用', () => {
   const out = parseZaiCodingQuota({
     code: 200,
     msg: '操作成功',
@@ -235,9 +235,9 @@ test('GLM Coding Plan 额度：三类池子按 type/unit/number 归到窗口，p
   ]);
 });
 
-test('GLM Coding Plan 额度：接口只返回的池子才画，认不出的条目不猜', () => {
-  // 海外团队版按 credit 计；周额度缺失时卡片上就没有 7d。
-  const team = parseZaiCodingQuota({
+test('GLM Coding Plan 个人套餐额度：接口只返回的池子才画，认不出的条目不猜', () => {
+  // 新版个人积分套餐按 credit 计；周额度缺失时卡片上就没有 7d。
+  const credits = parseZaiCodingQuota({
     success: true,
     data: {
       level: 'PRO',
@@ -248,9 +248,9 @@ test('GLM Coding Plan 额度：接口只返回的池子才画，认不出的条�
       ],
     },
   });
-  assert.equal(team.ok, true);
-  assert.equal(team.usage.plan, 'GLM Coding Pro');
-  assert.deepEqual(team.usage.windows, [{ key: '5h', percent: 12, resetsAt: Date.parse('2026-11-27T10:00:00.000Z') }]);
+  assert.equal(credits.ok, true);
+  assert.equal(credits.usage.plan, 'GLM Coding Pro');
+  assert.deepEqual(credits.usage.windows, [{ key: '5h', percent: 12, resetsAt: Date.parse('2026-11-27T10:00:00.000Z') }]);
 
   // percentage 缺失：按同一条的 已用/总量 折算；连总数也没有就不画，不当成 0%。
   const derived = parseZaiCodingQuota({
@@ -270,7 +270,7 @@ test('GLM Coding Plan 额度：接口只返回的池子才画，认不出的条�
   assert.deepEqual(clamped.usage.windows.map((w) => w.percent), [100, 0]);
 });
 
-test('GLM Coding Plan 额度：没套餐是 noPlan，其它失败信封是 shape，成功但没有池子是 empty', () => {
+test('GLM Coding Plan 个人套餐额度：没套餐是 noPlan，其它失败信封是 shape，成功但没有池子是 empty', () => {
   // 接口对「没有套餐」仍回 HTTP 200，只是信封是失败的。
   assert.equal(parseZaiCodingQuota({ code: 400, msg: '当前用户不存在coding plan', success: false }).code, 'noPlan');
   assert.equal(parseZaiCodingQuota({ code: 401, msg: '用户没有资格访问' }).code, 'noPlan');
@@ -675,7 +675,7 @@ test('取数：OpenCode 用量接口同时带 Authorization 与 x-api-key', asyn
   assert.equal(calls[0].init.headers['x-api-key'], 'sk-test');
 });
 
-test('取数：GLM Coding Plan 额度头是裸 Key（不加 Bearer），国内走 open.bigmodel.cn、海外走 api.z.ai', async () => {
+test('取数：GLM Coding Plan 个人套餐额度头是裸 Key（不加 Bearer），国内走 open.bigmodel.cn、海外走 api.z.ai', async () => {
   const quota = {
     code: 200,
     success: true,
@@ -689,16 +689,17 @@ test('取数：GLM Coding Plan 额度头是裸 Key（不加 Bearer），国内�
   assert.deepEqual(cn.usage.windows, [{ key: '5h', percent: 9, resetsAt: 1778753640304 }]);
   assert.match(calls[0].url, /^https:\/\/open\.bigmodel\.cn\/api\/monitor\/usage\/quota\/limit$/);
   assert.equal(calls[0].init.headers.Authorization, 'id.secret', '与 ZCode 一致：发裸 Key');
-  assert.equal(calls[0].init.headers['x-api-key'], undefined);
+  assert.deepEqual(Object.keys(calls[0].init.headers).sort(), ['Accept', 'Authorization'], '个人套餐使用无作用域端点');
   assert.equal(calls[0].init.method, 'GET');
 
   const intl = await reader.read(accountCapabilityOf('zai-coding'), 'id.secret');
   assert.equal(intl.ok, true);
   assert.match(calls[1].url, /^https:\/\/api\.z\.ai\/api\/monitor\/usage\/quota\/limit$/);
   assert.equal(calls[1].init.headers.Authorization, 'id.secret');
+  assert.deepEqual(Object.keys(calls[1].init.headers).sort(), ['Accept', 'Authorization'], '个人套餐使用无作用域端点');
 });
 
-test('取数：GLM Coding Plan 国内主域失败时回落 bigmodel.cn，没套餐时给出 noPlan', async () => {
+test('取数：GLM Coding Plan 个人套餐国内主域失败时回落 bigmodel.cn，没套餐时给出 noPlan', async () => {
   const { impl, calls } = stubFetch({
     'open.bigmodel.cn': { status: 502, body: {} },
     'bigmodel.cn/api/monitor': { body: { code: 200, success: true, data: { limits: [{ type: 'TOKENS_LIMIT', unit: 6, number: 1, percentage: 40 }] } } },
